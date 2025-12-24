@@ -10,3 +10,4 @@ build-make/
 
 # OS
 .DS_Store
+/release
