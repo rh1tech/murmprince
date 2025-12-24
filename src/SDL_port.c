@@ -1119,33 +1119,104 @@ Uint32 SDL_GetTicks(void) {
 
 static Uint8 keyboard_state[SDL_NUM_SCANCODES];
 
+// Buffered events for returning one at a time
+static SDL_Event pending_events[32];
+static int pending_event_count = 0;
+static int pending_event_index = 0;
+
+// Key timeout tracking to auto-release stuck keys
+// Only track movement keys (arrows) and shift - these are most likely to "stick"
+#define KEY_TIMEOUT_MS 500  // Auto-release after 500ms with no new press
+static Uint32 key_press_time[SDL_NUM_SCANCODES];
+
+// List of scancodes to apply timeout to (movement-critical keys)
+static const int timeout_scancodes[] = {
+    79,  // SDL_SCANCODE_RIGHT
+    80,  // SDL_SCANCODE_LEFT
+    81,  // SDL_SCANCODE_DOWN
+    82,  // SDL_SCANCODE_UP
+    225, // SDL_SCANCODE_LSHIFT
+    229, // SDL_SCANCODE_RSHIFT
+    -1   // Sentinel
+};
+
+static void check_key_timeouts(void) {
+    Uint32 now = (time_us_32() / 1000);
+    
+    for (int i = 0; timeout_scancodes[i] >= 0; i++) {
+        int sc = timeout_scancodes[i];
+        if (keyboard_state[sc] && key_press_time[sc] != 0) {
+            Uint32 elapsed = now - key_press_time[sc];
+            // Only timeout if the key has been held for a while AND the PS/2 driver
+            // no longer thinks it's pressed
+            if (elapsed > KEY_TIMEOUT_MS && !ps2kbd_is_key_pressed(sc)) {
+                // Generate a synthetic release event
+                if (pending_event_count < 32) {
+                    keyboard_state[sc] = 0;
+                    key_press_time[sc] = 0;
+                    
+                    SDL_Event* ev = &pending_events[pending_event_count++];
+                    memset(ev, 0, sizeof(*ev));
+                    ev->type = SDL_KEYUP;
+                    ev->key.keysym.scancode = sc;
+                    ev->key.keysym.sym = sc;
+                    ev->key.keysym.mod = 0;
+                    ev->key.state = 0;
+                    ev->key.repeat = 0;
+                }
+            }
+        }
+    }
+}
+
 int SDL_PollEvent(SDL_Event *event) {
     // Pump audio buffers on every event poll
     #if RP_SDL_FEATURE_AUDIO
     audio_i2s_driver_pump();
     #endif
     
-    // Poll PS/2 keyboard
+    // Poll PS/2 keyboard - process ALL pending PS/2 scancodes
     ps2kbd_tick();
     
-    int pressed, scancode, modifier;
-    if (ps2kbd_get_key(&pressed, &scancode, &modifier)) {
-        if (event) {
-            memset(event, 0, sizeof(*event));
-            event->type = pressed ? SDL_KEYDOWN : SDL_KEYUP;
-            event->key.keysym.scancode = scancode;
-            event->key.keysym.sym = scancode;  // Simplified: sym = scancode
-            event->key.keysym.mod = modifier;
-            event->key.state = pressed ? 1 : 0;
-            event->key.repeat = 0;
-            
-            // Update keyboard state array
-            if (scancode < SDL_NUM_SCANCODES) {
+    // If we have no buffered events, drain all events from PS/2 queue
+    if (pending_event_index >= pending_event_count) {
+        pending_event_count = 0;
+        pending_event_index = 0;
+        
+        Uint32 now = (time_us_32() / 1000);
+        int pressed, scancode, modifier;
+        while (pending_event_count < 32 && ps2kbd_get_key(&pressed, &scancode, &modifier)) {
+            // Update keyboard state immediately
+            if (scancode >= 0 && scancode < SDL_NUM_SCANCODES) {
                 keyboard_state[scancode] = pressed ? 1 : 0;
+                // Track press time for timeout
+                key_press_time[scancode] = pressed ? now : 0;
             }
+            
+            // Buffer the event
+            SDL_Event* ev = &pending_events[pending_event_count++];
+            memset(ev, 0, sizeof(*ev));
+            ev->type = pressed ? SDL_KEYDOWN : SDL_KEYUP;
+            ev->key.keysym.scancode = scancode;
+            ev->key.keysym.sym = scancode;
+            ev->key.keysym.mod = modifier;
+            ev->key.state = pressed ? 1 : 0;
+            ev->key.repeat = 0;
         }
+        
+        // Check for stuck keys and auto-release them
+        check_key_timeouts();
+    }
+    
+    // Return next buffered event
+    if (pending_event_index < pending_event_count) {
+        if (event) {
+            *event = pending_events[pending_event_index];
+        }
+        pending_event_index++;
         return 1;
     }
+    
     return 0;
 }
 

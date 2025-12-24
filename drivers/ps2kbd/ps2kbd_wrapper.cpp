@@ -186,6 +186,9 @@ static void key_handler(hid_keyboard_report_t *curr, hid_keyboard_report_t *prev
 
 static Ps2Kbd_Mrmltr* kbd = nullptr;
 
+// Track which SDL scancodes are currently held (for direct state query)
+static uint8_t pressed_keys[256] = {0};
+
 extern "C" void ps2kbd_init(void) {
     // PS2 keyboard driver expects base_gpio as CLK, and base_gpio+1 as DATA
     kbd = new Ps2Kbd_Mrmltr(pio0, PS2_PIN_CLK, key_handler);
@@ -203,5 +206,20 @@ extern "C" int ps2kbd_get_key(int* pressed, int* scancode, int* modifier) {
     *pressed = e.pressed;
     *scancode = e.scancode;
     *modifier = e.modifier;
+    
+    // Update pressed_keys tracking
+    if (e.scancode >= 0 && e.scancode < 256) {
+        pressed_keys[e.scancode] = e.pressed ? 1 : 0;
+    }
+    
     return 1;
+}
+
+extern "C" int ps2kbd_is_key_pressed(int scancode) {
+    if (scancode < 0 || scancode >= 256) return 0;
+    return pressed_keys[scancode];
+}
+
+extern "C" int ps2kbd_events_pending(void) {
+    return (int)event_queue.size();
 }
