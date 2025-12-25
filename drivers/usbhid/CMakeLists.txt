@@ -13,7 +13,7 @@ if(USB_HID_ENABLED)
     # Add the actual source files when enabled
     target_sources(usbhid INTERFACE
         ${CMAKE_CURRENT_LIST_DIR}/hid_app.c
-        ${CMAKE_CURRENT_LIST_DIR}/usbhid_wrapper.c
+        ${CMAKE_CURRENT_LIST_DIR}/usbhid_sdl_wrapper.c
     )
     
     # Include this directory for tusb_config_usbhid.h (renamed to avoid conflict)

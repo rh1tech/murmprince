@@ -10,6 +10,11 @@
 #include "pop_fs.h"
 #include "ps2kbd/ps2kbd_wrapper.h"
 
+// USB HID keyboard support (optional)
+#ifdef USB_HID_ENABLED
+#include "usbhid/usbhid_sdl_wrapper.h"
+#endif
+
 #include "third_party/stb/stb_image.h"
 
 // Audio support
@@ -1147,9 +1152,13 @@ static void check_key_timeouts(void) {
         int sc = timeout_scancodes[i];
         if (keyboard_state[sc] && key_press_time[sc] != 0) {
             Uint32 elapsed = now - key_press_time[sc];
-            // Only timeout if the key has been held for a while AND the PS/2 driver
-            // no longer thinks it's pressed
-            if (elapsed > KEY_TIMEOUT_MS && !ps2kbd_is_key_pressed(sc)) {
+            // Only timeout if the key has been held for a while AND neither
+            // PS/2 nor USB HID driver thinks it's pressed
+            int key_still_pressed = ps2kbd_is_key_pressed(sc);
+            #ifdef USB_HID_ENABLED
+            key_still_pressed = key_still_pressed || usbhid_sdl_is_key_pressed(sc);
+            #endif
+            if (elapsed > KEY_TIMEOUT_MS && !key_still_pressed) {
                 // Generate a synthetic release event
                 if (pending_event_count < 32) {
                     keyboard_state[sc] = 0;
@@ -1178,13 +1187,20 @@ int SDL_PollEvent(SDL_Event *event) {
     // Poll PS/2 keyboard - process ALL pending PS/2 scancodes
     ps2kbd_tick();
     
-    // If we have no buffered events, drain all events from PS/2 queue
+    // Poll USB HID keyboard
+    #ifdef USB_HID_ENABLED
+    usbhid_sdl_tick();
+    #endif
+    
+    // If we have no buffered events, drain all events from PS/2 and USB queues
     if (pending_event_index >= pending_event_count) {
         pending_event_count = 0;
         pending_event_index = 0;
         
         Uint32 now = (time_us_32() / 1000);
         int pressed, scancode, modifier;
+        
+        // Drain PS/2 events
         while (pending_event_count < 32 && ps2kbd_get_key(&pressed, &scancode, &modifier)) {
             // Update keyboard state immediately
             if (scancode >= 0 && scancode < SDL_NUM_SCANCODES) {
@@ -1203,6 +1219,28 @@ int SDL_PollEvent(SDL_Event *event) {
             ev->key.state = pressed ? 1 : 0;
             ev->key.repeat = 0;
         }
+        
+        // Drain USB HID events
+        #ifdef USB_HID_ENABLED
+        while (pending_event_count < 32 && usbhid_sdl_get_key(&pressed, &scancode, &modifier)) {
+            // Update keyboard state immediately
+            if (scancode >= 0 && scancode < SDL_NUM_SCANCODES) {
+                keyboard_state[scancode] = pressed ? 1 : 0;
+                // Track press time for timeout
+                key_press_time[scancode] = pressed ? now : 0;
+            }
+            
+            // Buffer the event
+            SDL_Event* ev = &pending_events[pending_event_count++];
+            memset(ev, 0, sizeof(*ev));
+            ev->type = pressed ? SDL_KEYDOWN : SDL_KEYUP;
+            ev->key.keysym.scancode = scancode;
+            ev->key.keysym.sym = scancode;
+            ev->key.keysym.mod = modifier;
+            ev->key.state = pressed ? 1 : 0;
+            ev->key.repeat = 0;
+        }
+        #endif
         
         // Check for stuck keys and auto-release them
         check_key_timeouts();

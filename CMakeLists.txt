@@ -72,6 +72,7 @@ add_subdirectory(src/fatfs)
 add_subdirectory(drivers/sdcard)
 add_subdirectory(drivers/ps2kbd)
 add_subdirectory(drivers/audio)
+add_subdirectory(drivers/usbhid)
 
 # SDLPoP (vendored)
 file(GLOB SDLPoP_SOURCES CONFIGURE_DEPENDS
@@ -245,6 +246,7 @@ else()
         hardware_spi
         hardware_clocks
         audio_driver
+        usbhid
     )
 
     # Make SDLPoP explicitly depend on the rp_sdl shim.
@@ -269,13 +271,18 @@ target_compile_definitions(murmprince PRIVATE
     RP2350_BOOT_TEST_PATTERN_MODE=${RP2350_BOOT_TEST_PATTERN_MODE}
 )
 
-target_link_libraries(murmprince pico_stdlib hardware_vreg hardware_clocks hardware_flash hardware_sync drivers sdcard ps2kbd sdlpop)
+target_link_libraries(murmprince pico_stdlib hardware_vreg hardware_clocks hardware_flash hardware_sync drivers sdcard ps2kbd usbhid sdlpop)
 
 if(NOT USE_REAL_SDL2)
     target_link_libraries(murmprince rp_sdl)
 endif()
 
-pico_enable_stdio_usb(murmprince 1)
+# USB HID Host and USB CDC stdio are mutually exclusive
+if(USB_HID_ENABLED)
+    pico_enable_stdio_usb(murmprince 0)
+else()
+    pico_enable_stdio_usb(murmprince 1)
+endif()
 pico_enable_stdio_uart(murmprince 0)
 
 pico_add_extra_outputs(murmprince)

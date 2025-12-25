@@ -7,7 +7,9 @@
 #include "hardware/clocks.h"
 #include "hardware/vreg.h"
 #include "hardware/structs/qmi.h"
+#ifndef USB_HID_ENABLED
 #include "pico/stdio_usb.h"
+#endif
 #include <stdio.h>
 #include <string.h>
 
@@ -17,6 +19,11 @@
 #include "psram_allocator.h"
 #include "pop_fs.h"
 #include "ps2kbd/ps2kbd_wrapper.h"
+
+// USB HID keyboard support (optional)
+#ifdef USB_HID_ENABLED
+#include "usbhid/usbhid_sdl_wrapper.h"
+#endif
 
 #define FRAME_W 320
 #define FRAME_H 240
@@ -186,6 +193,11 @@ int main(void) {
 
     DBG_PRINTF("Initializing PS/2 keyboard...\n");
     ps2kbd_init();
+
+#ifdef USB_HID_ENABLED
+    DBG_PRINTF("Initializing USB HID keyboard...\n");
+    usbhid_sdl_init();
+#endif
 
     DBG_PRINTF("Starting SDLPoP...\n");
     char *argv[] = {"prince", NULL};

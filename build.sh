@@ -85,6 +85,7 @@ cmake_args=(
     "-DBOARD_VARIANT=${BOARD_VAR}"
     "-DCPU_SPEED=${CPU_VAR}"
     "-DPSRAM_SPEED=${PSRAM_VAR}"
+    "-DUSB_HID_ENABLED=1"
 )
 
 # Diagnostics toggles (legacy env var support)

@@ -135,7 +135,7 @@ for config in "${CONFIGS[@]}"; do
     cd build-make
     
     # Configure with CMake
-    if cmake .. -DBOARD_VARIANT="$BOARD" -DCPU_SPEED="$CPU" -DPSRAM_SPEED="$PSRAM" > /dev/null 2>&1; then
+    if cmake .. -DBOARD_VARIANT="$BOARD" -DCPU_SPEED="$CPU" -DPSRAM_SPEED="$PSRAM" -DUSB_HID_ENABLED=1 > /dev/null 2>&1; then
         # Build
         if make -j8 > /dev/null 2>&1; then
             # Copy UF2 to release directory
