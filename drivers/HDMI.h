@@ -69,6 +69,15 @@ void set_palette(uint8_t n); // переключение палитр
 void graphics_set_fade_level(uint8_t fade_level, uint16_t which_rows);
 uint8_t graphics_get_fade_level(void);
 
+// Get HDMI IRQ counter (for diagnostics)
+uint32_t graphics_get_hdmi_irq_count(void);
+
+// Get HDMI FIFO underrun counter (for diagnostics)
+uint32_t graphics_get_hdmi_underrun_count(void);
+
+// Get double-buffer swap counter (for diagnostics)
+uint32_t graphics_get_buffer_swap_count(void);
+
 struct video_mode_t graphics_get_video_mode(int mode);
 void graphics_set_bgcolor(uint32_t color888);
 

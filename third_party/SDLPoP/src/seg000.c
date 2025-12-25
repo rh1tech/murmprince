@@ -24,6 +24,8 @@ The authors of this program may be contacted at https://forum.princed.org
 #include <math.h>
 #ifdef POP_RP2350
 #include "psram_allocator.h"
+#include "pico/stdlib.h"  // for sleep_ms
+extern uint32_t graphics_get_hdmi_irq_count(void);
 #endif
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -234,6 +236,8 @@ void start_game() {
 		#ifdef POP_RP2350
 		// Restore PSRAM to session mark to reclaim memory from freed chtabs
 		psram_restore_session();
+		// Give HDMI DMA time to stabilize after PSRAM memory operation
+		sleep_ms(5);
 		#endif
 		draw_rect(&screen_rect, color_0_black);
 		show_quotes();
@@ -2023,27 +2027,60 @@ void show_title() {
 	draw_full_image(TITLE_MECHNER);
 	do_wait(timer_0);
 
-	start_timer(timer_0, 0x300); // Show "Prince of Persia" logo alone for longer
+#ifdef POP_RP2350
+	uint32_t t0 = time_us_32() / 1000;  // Start time in ms
+	printf("[TITLE @%ums] Starting 0x258 timer (logo alone)\n", t0);
+#endif
+	start_timer(timer_0, 0x258); // Show "Prince of Persia" logo - reduced from 0x300 to match music length
 	method_1_blit_rect(onscreen_surface_, offscreen_surface, &rect_titles, &rect_titles, blitters_0_no_transp);
 	draw_full_image(TITLE_MAIN);
 	draw_full_image(TITLE_POP);
 	do_wait(timer_0);
+#ifdef POP_RP2350
+	uint32_t t1 = time_us_32() / 1000;
+	printf("[TITLE @%ums] Timer done (+%ums), check_sound=%d\n", t1, t1-t0, check_sound_playing());
+#endif
 
 	method_1_blit_rect(onscreen_surface_, offscreen_surface, &rect_titles, &rect_titles, blitters_0_no_transp);
 	draw_full_image(STORY_FRAME);
 	draw_full_image(STORY_ABSENCE);
 	current_target_surface = onscreen_surface_;
+#ifdef POP_RP2350
+	int wait_loops = 0;
+#endif
 	while (check_sound_playing()) {
 		idle();
 		do_paused();
 		delay_ticks(1);
+#ifdef POP_RP2350
+		wait_loops++;
+#endif
 	}
+#ifdef POP_RP2350
+	uint32_t t2 = time_us_32() / 1000;
+	printf("[TITLE @%ums] Sound wait done (+%ums, %d loops)\n", t2, t2-t1, wait_loops);
+#endif
 //	method_1_blit_rect(onscreen_surface_, offscreen_surface, &screen_rect, &screen_rect, blitters_0_no_transp);
 	play_sound_from_buffer(sound_pointers[sound_55_story_1_absence]); // story 1: In the absence
+#ifdef POP_RP2350
+	printf("[TITLE @%ums] transition_ltr starting\n", time_us_32() / 1000);
+#endif
 	transition_ltr();
+#ifdef POP_RP2350
+	printf("[TITLE @%ums] transition_ltr done, pop_wait starting\n", time_us_32() / 1000);
+#endif
 	pop_wait(timer_0, 0x258);
+#ifdef POP_RP2350
+	printf("[TITLE @%ums] pop_wait done, fade_out_2 starting\n", time_us_32() / 1000);
+#endif
 	fade_out_2(0x800);
+#ifdef POP_RP2350
+	printf("[TITLE @%ums] fade_out_2 done, release_title_images starting\n", time_us_32() / 1000);
+#endif
 	release_title_images();
+#ifdef POP_RP2350
+	printf("[TITLE @%ums] release_title_images done, calling load_intro\n", time_us_32() / 1000);
+#endif
 
 	load_intro(0, &pv_scene, 0);
 
@@ -2079,10 +2116,36 @@ void show_title() {
 		do_paused();
 		delay_ticks(1);
 	}
+#ifdef POP_RP2350
+	extern uint32_t graphics_get_hdmi_underrun_count(void);
+	extern uint32_t graphics_get_buffer_swap_count(void);
+	uint32_t demo_irq_before = graphics_get_hdmi_irq_count();
+	uint32_t demo_underrun_before = graphics_get_hdmi_underrun_count();
+	uint32_t demo_swaps_before = graphics_get_buffer_swap_count();
+	uint32_t demo_time_before = time_us_32() / 1000;
+	printf("[DEMO @%ums] show_title: before fade_out_2 (IRQ=%u, underruns=%u, swaps=%u)\n", 
+	       demo_time_before, demo_irq_before, demo_underrun_before, demo_swaps_before);
+#endif
 	fade_out_2(0x1800);
+#ifdef POP_RP2350
+	uint32_t demo_irq_fade = graphics_get_hdmi_irq_count();
+	uint32_t demo_underrun_fade = graphics_get_hdmi_underrun_count();
+	uint32_t demo_swaps_fade = graphics_get_buffer_swap_count();
+	uint32_t demo_time_fade = time_us_32() / 1000;
+	printf("[DEMO @%ums] show_title: after fade_out_2 (IRQ delta=%u, underruns=%u, swaps=%u)\n", 
+	       demo_time_fade, demo_irq_fade - demo_irq_before, 
+	       demo_underrun_fade - demo_underrun_before, demo_swaps_fade - demo_swaps_before);
+#endif
 	free_surface(offscreen_surface);
 	offscreen_surface = NULL; // added
 	release_title_images();
+#ifdef POP_RP2350
+	uint32_t demo_irq_rel = graphics_get_hdmi_irq_count();
+	uint32_t demo_swaps_rel = graphics_get_buffer_swap_count();
+	uint32_t demo_time_rel = time_us_32() / 1000;
+	printf("[DEMO @%ums] show_title: after release, before init_game(0) (IRQ delta=%u, swaps=%u)\n", 
+	       demo_time_rel, demo_irq_rel - demo_irq_fade, demo_swaps_rel - demo_swaps_fade);
+#endif
 	init_game(0);
 }
 
@@ -2286,11 +2349,11 @@ void clear_screen_and_sounds() {
 void parse_cmdline_sound() {
 	#ifdef POP_RP2350
 	// RP2350: Use digital (wave) sounds via I2S audio output.
-	// MIDI music uses OPL3 software synthesis.
+	// MIDI music uses emu8950 OPL2 software synthesis (optimized ARM assembly).
 	sound_flags = sfDigi | sfMidi;  // Enable digital sounds and MIDI music
 	sound_mode = smSblast;
 	is_sound_on = 1;       // Sound enabled by default
-	enable_music = 1;      // Enable MIDI music (OPL3 synthesis)
+	enable_music = 1;      // Enable MIDI music (emu8950 OPL2 synthesis)
 	return;
 	#endif
 
@@ -2346,6 +2409,11 @@ void load_all_sounds() {
 		load_opt_sounds(43, 56);
 		skip_mod_data_files = false;
 	}
+#ifdef POP_RP2350
+	// Generate MIDI cache files on SD card if they don't exist
+	// After first run, music will stream from these files instead of real-time OPL3
+	midi_generate_cache_files();
+#endif
 }
 
 // seg000:22BB

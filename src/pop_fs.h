@@ -25,6 +25,8 @@ long pop_fs_tell(FIL* fil);
 int pop_fs_close(FIL* fil);
 
 bool pop_fs_exists(const char* pop_path);
+bool pop_fs_mkdir(const char* pop_path);
+bool pop_fs_delete(const char* pop_path);
 
 #ifdef __cplusplus
 }

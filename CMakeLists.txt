@@ -166,7 +166,7 @@ else()
 endif()
 target_compile_definitions(sdlpop PUBLIC POP_RP2350)
 target_compile_options(sdlpop PRIVATE -Ofast)
-target_link_libraries(sdlpop PRIVATE pico_stdlib)
+target_link_libraries(sdlpop PRIVATE pico_stdlib hardware_interp)
 
 add_library(drivers
     drivers/HDMI.c

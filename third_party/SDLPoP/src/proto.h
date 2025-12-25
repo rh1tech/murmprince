@@ -729,3 +729,8 @@ void stop_midi(void);
 void init_midi(void);
 void midi_callback(void *userdata, Uint8 *stream, int len);
 void play_midi_sound(sound_buffer_type* buffer);
+#ifdef POP_RP2350
+void midi_cached_callback(void *userdata, Uint8 *stream, int len);
+int midi_play_from_cache(int sound_id);
+void midi_generate_cache_files(void);
+#endif

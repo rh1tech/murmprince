@@ -152,3 +152,23 @@ bool pop_fs_exists(const char* pop_path) {
     FRESULT fr = f_stat(full, &fno);
     return fr == FR_OK;
 }
+bool pop_fs_mkdir(const char* pop_path) {
+    if (!g_mounted && !pop_fs_init()) return false;
+
+    char full[256];
+    pop_fs_make_path(full, sizeof(full), pop_path);
+
+    FRESULT fr = f_mkdir(full);
+    // FR_OK = created, FR_EXIST = already exists (both are success)
+    return fr == FR_OK || fr == FR_EXIST;
+}
+
+bool pop_fs_delete(const char* pop_path) {
+    if (!g_mounted && !pop_fs_init()) return false;
+
+    char full[256];
+    pop_fs_make_path(full, sizeof(full), pop_path);
+
+    FRESULT fr = f_unlink(full);
+    return fr == FR_OK;
+}

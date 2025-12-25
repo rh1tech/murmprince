@@ -22,6 +22,7 @@ The authors of this program may be contacted at https://forum.princed.org
 #ifdef POP_RP2350
 #include "psram_allocator.h"
 #include "HDMI.h"
+#include "pico/stdlib.h"  // for sleep_us
 #endif
 #include <time.h>
 #include <errno.h>
@@ -695,6 +696,9 @@ chtab_type* load_sprites_from_file(int resource,int palette_bits, int quit_on_er
 			DBG_PRINTF("[load_sprites_from_file] res %d: %d/%d\n", resource, i, n_images);
 			fflush(stdout);
 		}
+		// Give HDMI DMA time to access PSRAM (avoid bus contention during heavy loading)
+		// The 500us delay allows several scanlines worth of DMA to complete
+		sleep_us(500);
 		#endif
 		SDL_Surface* image = load_image(resource + i, pal_ptr);
 //		if (image == NULL) printf(" failed");
@@ -1149,6 +1153,8 @@ image_type* load_image(int resource_id, dat_pal_type* palette) {
 					}
 					
 					for (int y = 0; y < h; ++y) {
+						// Yield every 16 rows to let HDMI DMA access PSRAM
+						if ((y & 0x0F) == 0) sleep_us(50);
 						for (int x = 0; x < w; ++x) {
 							uint32_t pixel = src[y * src_pitch + x];
 							// Extract RGBA (assuming RGBA8888 byte order from stb_image)
@@ -1371,6 +1377,11 @@ void flip_screen(surface_type* surface) {
 void fade_in_2(surface_type* source_surface,int which_rows) {
 	// stub
 	method_1_blit_rect(onscreen_surface_, source_surface, &screen_rect, &screen_rect, 0);
+#ifdef POP_RP2350
+	// Reset HDMI fade level to full brightness since we skipped software fade
+	graphics_set_fade_level(0, 0);
+	update_screen();
+#endif
 }
 
 // seg009:1CC9
@@ -2655,6 +2666,13 @@ void audio_callback(void* userdata, Uint8* stream_orig, int len_orig) {
 	}
 	// Note: music sounds and digi sounds are allowed to play simultaneously (will be blended together)
 	// I.e., digi sounds and music will not cut each other short.
+#ifdef POP_RP2350
+	extern int midi_cache_playing;
+	extern void midi_cached_callback(void*, Uint8*, int);
+	if (midi_cache_playing) {
+		midi_cached_callback(userdata, stream, len);
+	} else
+#endif
 	if (midi_playing) {
 		midi_callback(userdata, stream, len);
 	} else if (ogg_playing) {
@@ -3080,9 +3098,9 @@ void turn_sound_on_off(byte new_state) {
 // seg009:7299
 int check_sound_playing() {
 	#ifdef POP_RP2350
-	// RP2350 bring-up: audio device/callbacks are not running yet.
-	// If we report "sound playing", title/cutscene code can wait forever.
-	return 0;
+	// RP2350: Check if MIDI cache playback or digi sounds are active
+	extern int midi_cache_playing;
+	return digi_playing || midi_playing || midi_cache_playing;
 	#else
 	return speaker_playing || digi_playing || midi_playing || ogg_playing;
 	#endif
@@ -4976,6 +4994,9 @@ void fade_in_2(surface_type* source_surface,int which_rows) {
 		while (fade_in_frame(palette_buffer) == 0) {
 			process_events(); // modified
 			do_paused();
+#ifdef POP_RP2350
+			SDL_AudioPump();  // Keep audio streaming during fade
+#endif
 		}
 		pal_restore_free_fadein(palette_buffer);
 	} else {
@@ -5107,6 +5128,9 @@ void fade_out_2(int rows) {
 		while (fade_out_frame(palette_buffer) == 0) {
 			process_events(); // modified
 			do_paused();
+#ifdef POP_RP2350
+			SDL_AudioPump();  // Keep audio streaming during fade
+#endif
 		}
 		pal_restore_free_fadeout(palette_buffer);
 	} else {
@@ -5157,6 +5181,11 @@ int fade_out_frame(palette_fade_type* palette_buffer) {
 	/**/start_timer(timer_1, palette_buffer->wait_time); // too slow?
 
 #ifdef POP_RP2350
+	// Heartbeat log every 16 frames to track fade progress
+	if ((palette_buffer->fade_pos % 16) == 0) {
+		printf("[FADE @%ums] fade_out_frame pos=%d/64\n", time_us_32() / 1000, palette_buffer->fade_pos);
+	}
+	
 	// On RP2350, fade works by applying a brightness multiplier at the HDMI output level.
 	// This avoids corrupting the game's palette, which would break SDL_BlitSurface color matching.
 	// fade_pos: 64 = full black, 0 = full brightness

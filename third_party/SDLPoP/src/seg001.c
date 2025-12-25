@@ -22,6 +22,7 @@ The authors of this program may be contacted at https://forum.princed.org
 
 #ifdef POP_RP2350
 #include "HDMI.h"
+#include "pico/stdlib.h"  // for time_us_32
 #endif
 
 #ifndef _MSC_VER // unistd.h does not exist in the Windows SDK.
@@ -433,13 +434,37 @@ void cutscene_2_6() {
 
 // seg001:05EC
 void pv_scene() {
+#ifdef POP_RP2350
+	uint32_t pv_irq_start = graphics_get_hdmi_irq_count();
+	uint32_t pv_time_start = time_us_32() / 1000;
+	printf("[CUTSCENE @%ums] pv_scene: ENTER (HDMI IRQ=%u)\n", pv_time_start, pv_irq_start);
+#endif
 	DBG_PRINTF("[CUTSCENE] pv_scene: START\n");
 	DBG_PRINTF("[CUTSCENE] pv_scene: init_princess()\n");
 	init_princess();
+#ifdef POP_RP2350
+	uint32_t pv_irq_after_init = graphics_get_hdmi_irq_count();
+	printf("[CUTSCENE] pv_scene: after init_princess (HDMI IRQ=%u, delta=%u)\n", 
+	       pv_irq_after_init, pv_irq_after_init - pv_irq_start);
+#endif
 	DBG_PRINTF("[CUTSCENE] pv_scene: saveshad()\n");
 	saveshad();
+#ifdef POP_RP2350
+	uint32_t fade_irq_before = graphics_get_hdmi_irq_count();
+	uint32_t fade_time_before = time_us_32() / 1000;
+	printf("[CUTSCENE @%ums] pv_scene: BEFORE fade_in_1() (HDMI IRQ=%u, delta_from_enter=%u, time_from_enter=%ums)\n", 
+	       fade_time_before, fade_irq_before, fade_irq_before - pv_irq_start, fade_time_before - pv_time_start);
+#endif
 	DBG_PRINTF("[CUTSCENE] pv_scene: calling fade_in_1()\n");
 	if (fade_in_1()) return;
+#ifdef POP_RP2350
+	uint32_t fade_irq_after = graphics_get_hdmi_irq_count();
+	uint32_t fade_time_after = time_us_32() / 1000;
+	uint32_t fade_elapsed = fade_time_after - fade_time_before;
+	uint32_t fade_expected = fade_elapsed * 31;
+	printf("[CUTSCENE @%ums] pv_scene: AFTER fade_in_1() (HDMI IRQ=%u, delta=%u, expected~%u, time=%ums)\n", 
+	       fade_time_after, fade_irq_after, fade_irq_after - fade_irq_before, fade_expected, fade_elapsed);
+#endif
 	init_vizier();
 	savekid();
 	if (proc_cutscene_frame(2)) return;
@@ -574,7 +599,15 @@ void delay_ticks(Uint32 ticks) {
 #ifdef USE_REPLAY
 	if (replaying && skipping_replay) return;
 #endif
+#ifdef POP_RP2350
+	// Pump audio during delay to prevent buffer underruns
+	for (Uint32 i = 0; i < ticks; ++i) {
+		SDL_AudioPump();
+		SDL_Delay(1000/60);
+	}
+#else
 	SDL_Delay(ticks *(1000/60));
+#endif
 }
 
 // seg001:0981
@@ -674,9 +707,31 @@ void expired() {
 // seg001:0CCD
 void load_intro(int which_imgs,cutscene_ptr_type func,int free_sounds) {
 #ifdef POP_RP2350
+	extern uint32_t graphics_get_hdmi_irq_count(void);
+	extern uint32_t graphics_get_hdmi_underrun_count(void);
+	extern uint32_t graphics_get_buffer_swap_count(void);
+	uint32_t t_start = time_us_32() / 1000;
+	uint32_t hdmi_irq0 = graphics_get_hdmi_irq_count();
+	uint32_t underrun0 = graphics_get_hdmi_underrun_count();
+	uint32_t swaps0 = graphics_get_buffer_swap_count();
+	printf("[CUTSCENE @%ums] load_intro: enter (IRQ=%u, underruns=%u, swaps=%u)\n", 
+	       t_start, hdmi_irq0, underrun0, swaps0);
+	
+	// Stop any music that's playing so it doesn't run during loading
+	stop_sounds();
+	uint32_t hdmi_irq1 = graphics_get_hdmi_irq_count();
+	uint32_t underrun1 = graphics_get_hdmi_underrun_count();
+	printf("[CUTSCENE @%ums] load_intro: sounds stopped (IRQ delta=%u, underruns=%u)\n", 
+	       time_us_32() / 1000, hdmi_irq1 - hdmi_irq0, underrun1 - underrun0);
+	
 	// Set HDMI fade to full black BEFORE loading any cutscene content.
 	// This prevents the brief flash of bright colors when palette is set.
 	graphics_set_fade_level(0x40, 0);
+	uint32_t hdmi_irq2 = graphics_get_hdmi_irq_count();
+	uint32_t swaps2 = graphics_get_buffer_swap_count();
+	printf("[CUTSCENE @%ums] load_intro: fade set (IRQ delta=%u, swaps=%u)\n", 
+	       time_us_32() / 1000, hdmi_irq2 - hdmi_irq1, swaps2 - swaps0);
+	
 	// Clear BOTH the SDL surface AND the HDMI buffer to ensure nothing shows
 	// while we load and set up the cutscene.
 	if (onscreen_surface_ && onscreen_surface_->pixels) {
@@ -688,14 +743,36 @@ void load_intro(int which_imgs,cutscene_ptr_type func,int free_sounds) {
 	if (hdmi_fb) {
 		memset(hdmi_fb, 0, graphics_get_width() * graphics_get_height());
 	}
+	uint32_t hdmi_irq3 = graphics_get_hdmi_irq_count();
+	printf("[CUTSCENE @%ums] load_intro: buffers cleared (HDMI IRQ=%u, delta=%u)\n", 
+	       time_us_32() / 1000, hdmi_irq3, hdmi_irq3 - hdmi_irq2);
 #endif
 	draw_rect(&screen_rect, color_0_black);
 	if (free_sounds) {
 		free_optional_sounds();
 	}
 	free_all_chtabs_from(id_chtab_3_princessinstory);
+#ifdef POP_RP2350
+	uint32_t load_irq_start = graphics_get_hdmi_irq_count();
+	uint32_t load_time_start = time_us_32() / 1000;
+	printf("[CUTSCENE @%ums] load_intro: loading PV.DAT set1 (950,980)... (HDMI IRQ=%u)\n", load_time_start, load_irq_start);
+#endif
 	load_chtab_from_file(id_chtab_8_princessroom, 950, "PV.DAT", 1<<13);
+#ifdef POP_RP2350
+	uint32_t load_irq1 = graphics_get_hdmi_irq_count();
+	uint32_t load_time1 = time_us_32() / 1000;
+	uint32_t expected_irqs = (load_time1 - load_time_start) * 31; // ~31 IRQs per ms
+	printf("[CUTSCENE @%ums] load_intro: chtab_8 loaded (HDMI IRQ=%u, delta=%u, expected~%u)\n", 
+	       load_time1, load_irq1, load_irq1 - load_irq_start, expected_irqs);
+#endif
 	load_chtab_from_file(id_chtab_9_princessbed, 980, "PV.DAT", 1<<14);
+#ifdef POP_RP2350
+	uint32_t load_irq2 = graphics_get_hdmi_irq_count();
+	uint32_t load_time2 = time_us_32() / 1000;
+	expected_irqs = (load_time2 - load_time1) * 31;
+	printf("[CUTSCENE @%ums] load_intro: chtab_9 loaded (HDMI IRQ=%u, delta=%u, expected~%u)\n",
+	       load_time2, load_irq2, load_irq2 - load_irq1, expected_irqs);
+#endif
 	current_target_surface = offscreen_surface;
 	
 	// Blit the room background (320x200)
@@ -718,37 +795,99 @@ void load_intro(int which_imgs,cutscene_ptr_type func,int free_sounds) {
 	SDL_FreeSurface(get_image(id_chtab_8_princessroom, 0));
 	if (NULL != chtab_addrs[id_chtab_8_princessroom]) chtab_addrs[id_chtab_8_princessroom]->images[0] = NULL;
 
+#ifdef POP_RP2350
+	uint32_t load_irq3 = graphics_get_hdmi_irq_count();
+	uint32_t load_time3 = time_us_32() / 1000;
+	printf("[CUTSCENE @%ums] load_intro: loading chtab_3 (800)... (HDMI IRQ=%u)\n", load_time3, load_irq3);
+#endif
 	load_chtab_from_file(id_chtab_3_princessinstory, 800, "PV.DAT", 1<<9);
+#ifdef POP_RP2350
+	uint32_t load_irq4 = graphics_get_hdmi_irq_count();
+	uint32_t load_time4 = time_us_32() / 1000;
+	uint32_t exp4 = (load_time4 - load_time3) * 31;
+	printf("[CUTSCENE @%ums] load_intro: chtab_3 loaded (HDMI IRQ=%u, delta=%u, expected~%u)\n", 
+	       load_time4, load_irq4, load_irq4 - load_irq3, exp4);
+	printf("[CUTSCENE @%ums] load_intro: loading chtab_4 (850)...\n", load_time4);
+#endif
 	load_chtab_from_file(id_chtab_4_jaffarinstory_princessincutscenes,
 	                     50*which_imgs + 850, "PV.DAT", 1<<10);
+#ifdef POP_RP2350
+	uint32_t load_irq5 = graphics_get_hdmi_irq_count();
+	uint32_t load_time5 = time_us_32() / 1000;
+	uint32_t exp5 = (load_time5 - load_time4) * 31;
+	printf("[CUTSCENE @%ums] load_intro: all images loaded (HDMI IRQ=%u, delta=%u, expected~%u)\n",
+	       load_time5, load_irq5, load_irq5 - load_irq4, exp5);
+	// Summary: total loading time and IRQ coverage
+	printf("[CUTSCENE] HDMI IRQ SUMMARY: start=%u end=%u total_delta=%u time=%ums expected~%u\n",
+	       load_irq_start, load_irq5, load_irq5 - load_irq_start, 
+	       load_time5 - load_time_start, (load_time5 - load_time_start) * 31);
+#endif
 	for (short current_star = 0; current_star < N_STARS; ++current_star) {
 		draw_star(current_star, 0);
 	}
 #ifdef POP_RP2350
+	uint32_t post_load_irq = graphics_get_hdmi_irq_count();
+	uint32_t post_load_time = time_us_32() / 1000;
+	printf("[CUTSCENE @%ums] load_intro: stars drawn (HDMI IRQ=%u)\n", post_load_time, post_load_irq);
 	// IMPORTANT: Copy the static background to onscreen AND to HDMI buffer NOW
 	// then set fade to full black. This ensures the complete scene (background + characters)
 	// is in the HDMI buffer before we start fading, and nothing is visible yet.
 	DBG_PRINTF("[CUTSCENE] load_intro: copying offscreen to onscreen and HDMI\n");
 	method_1_blit_rect(onscreen_surface_, offscreen_surface, &screen_rect, &screen_rect, 0);
+	uint32_t blit_irq = graphics_get_hdmi_irq_count();
+	printf("[CUTSCENE] load_intro: after blit to onscreen (HDMI IRQ=%u, delta=%u)\n", 
+	       blit_irq, blit_irq - post_load_irq);
 	SDL_UpdateTexture(NULL, NULL, onscreen_surface_->pixels, onscreen_surface_->pitch);
+	uint32_t update_irq = graphics_get_hdmi_irq_count();
+	printf("[CUTSCENE] load_intro: after SDL_UpdateTexture (HDMI IRQ=%u, delta=%u)\n", 
+	       update_irq, update_irq - blit_irq);
 	DBG_PRINTF("[CUTSCENE] load_intro: setting fade to 0x40 (full black)\n");
 	graphics_set_fade_level(0x40, 0);  // Set to full black NOW, before sound wait loop
+	uint32_t fade_set_irq = graphics_get_hdmi_irq_count();
+	printf("[CUTSCENE] load_intro: after fade set (HDMI IRQ=%u, delta=%u)\n", 
+	       fade_set_irq, fade_set_irq - update_irq);
 #endif
 	current_target_surface = onscreen_surface_;
+#ifdef POP_RP2350
+	uint32_t sound_wait_start_irq = graphics_get_hdmi_irq_count();
+	uint32_t sound_wait_start_time = time_us_32() / 1000;
+	printf("[CUTSCENE @%ums] load_intro: entering sound wait loop (HDMI IRQ=%u)\n", 
+	       sound_wait_start_time, sound_wait_start_irq);
+#endif
 	DBG_PRINTF("[CUTSCENE] load_intro: entering sound wait loop\n");
 	while (check_sound_playing()) {
 		idle();
 		do_paused();
 		delay_ticks(1);
 	}
+#ifdef POP_RP2350
+	uint32_t sound_wait_end_irq = graphics_get_hdmi_irq_count();
+	uint32_t sound_wait_end_time = time_us_32() / 1000;
+	uint32_t sound_wait_elapsed = sound_wait_end_time - sound_wait_start_time;
+	uint32_t sound_wait_expected = sound_wait_elapsed * 31;
+	printf("[CUTSCENE @%ums] load_intro: sound wait done (HDMI IRQ=%u, delta=%u, expected~%u, wait_time=%ums)\n", 
+	       sound_wait_end_time, sound_wait_end_irq, sound_wait_end_irq - sound_wait_start_irq, 
+	       sound_wait_expected, sound_wait_elapsed);
+#endif
 	DBG_PRINTF("[CUTSCENE] load_intro: sound wait done, calling reset_cutscene\n");
 	need_drects = 1;
 	reset_cutscene();
+#ifdef POP_RP2350
+	uint32_t reset_irq = graphics_get_hdmi_irq_count();
+	printf("[CUTSCENE] load_intro: after reset_cutscene (HDMI IRQ=%u, delta=%u)\n", 
+	       reset_irq, reset_irq - sound_wait_end_irq);
+#endif
 	DBG_PRINTF("[CUTSCENE] load_intro: calling func() (pv_scene)\n");
 	is_cutscene = 1;
 	func();
 	is_cutscene = 0;
+#ifdef POP_RP2350
+	update_screen();  // Keep HDMI alive before cleanup
+#endif
 	free_all_chtabs_from(3);
+#ifdef POP_RP2350
+	update_screen();  // Keep HDMI alive after cleanup
+#endif
 	draw_rect(&screen_rect, color_0_black);
 }
 
@@ -886,6 +1025,10 @@ int fade_in_1() {
 #else
 	// stub
 	method_1_blit_rect(onscreen_surface_, offscreen_surface, &screen_rect, &screen_rect, 0);
+#ifdef POP_RP2350
+	// Reset HDMI fade level to full brightness since we skipped software fade
+	graphics_set_fade_level(0, 0);
+#endif
 	update_screen();
 //	SDL_UpdateRect(onscreen_surface_, 0, 0, 0, 0); // debug
 	return 0;

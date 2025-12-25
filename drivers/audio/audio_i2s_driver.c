@@ -43,9 +43,10 @@
 #define AUDIO_I2S_DMA_CHANNEL 6
 #endif
 
-// Use DMA IRQ 1 for audio (leave IRQ 0 for other uses)
+// Use DMA IRQ 0 for audio (share with SD card on Core 0)
+// HDMI on Core 1 uses IRQ 1 exclusively
 #ifndef AUDIO_I2S_DMA_IRQ
-#define AUDIO_I2S_DMA_IRQ 1
+#define AUDIO_I2S_DMA_IRQ 0
 #endif
 
 // ============================================================================

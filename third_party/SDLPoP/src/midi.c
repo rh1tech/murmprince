@@ -30,6 +30,10 @@ CREDITS:
 #include "opl3.h"
 #include "math.h"
 
+#ifdef POP_RP2350
+#include "psram_allocator.h"
+#endif
+
 #define MAX_MIDI_CHANNELS 16
 #define MAX_OPL_VOICES 18
 
@@ -44,6 +48,34 @@ extern short midi_playing; // seg009.c
 extern SDL_AudioSpec* digi_audiospec; // seg009.c
 extern int digi_unavailable; // seg009.c
 
+#ifdef POP_RP2350
+// MIDI cache: stream pre-rendered PCM audio from SD card files
+// Files are stored as raw PCM: 22050 Hz, stereo, 16-bit little-endian
+#define MIDI_CACHE_SAMPLE_RATE 22050
+#define MIDI_STREAM_BUFFER_SIZE 2048  // Samples per read chunk (stereo frames)
+// Cache version - increment when cache format or parameters change
+// This causes stale cache files to be automatically regenerated
+#define MIDI_CACHE_VERSION 0x4D434104  // "MCA" + version 4 (0.5s tail)
+
+#include "pico/stdlib.h"  // for time_us_32
+
+#include "pop_fs.h"
+
+// Streaming state for SD card playback
+static FIL* midi_stream_file = NULL;
+static int midi_stream_samples_remaining = 0;
+static int16_t midi_stream_buffer[MIDI_STREAM_BUFFER_SIZE * 2];  // Stereo buffer
+static int midi_stream_buffer_pos = 0;
+static int midi_stream_buffer_valid = 0;  // Valid samples in buffer
+int midi_cache_playing = 0;  // Not static - needs to be accessed from seg009.c
+
+// Cache file path helper
+static void midi_cache_filename(int sound_id, char* buf, size_t bufsize) {
+    snprintf(buf, bufsize, "data/midi_cache/snd%02d.pcm", sound_id);
+}
+#endif
+
+// Nuked OPL3 emulator
 static opl3_chip opl_chip;
 static void* instruments_data;
 static instrument_type* instruments;
@@ -509,6 +541,9 @@ static void process_midi_event(midi_event_type* event) {
 
 #define ONE_SECOND_IN_US 1000000LL
 
+// Static buffer for OPL output
+static short midi_temp_buffer[4096];
+
 void midi_callback(void *userdata, Uint8 *stream, int len) {
 	if (!midi_playing || len <= 0) return;
 	int frames_needed = len / 4;
@@ -520,15 +555,18 @@ void midi_callback(void *userdata, Uint8 *stream, int len) {
 			int64_t advance_us = MIN(us_to_next_pause, us_needed);
 			int available_frames = (int)(((advance_us * mixing_freq) + ONE_SECOND_IN_US - 1) / ONE_SECOND_IN_US); // round up.
 			int advance_frames = MIN(available_frames, frames_needed);
+			// Clamp to buffer size
+			if (advance_frames > 2048) advance_frames = 2048;
 			advance_us = advance_frames * ONE_SECOND_IN_US / mixing_freq; // recalculate, in case the rounding up increased this.
-			short* temp_buffer = malloc(advance_frames * 4);
-			OPL3_GenerateStream(&opl_chip, temp_buffer, advance_frames);
+			
+			OPL3_GenerateStream(&opl_chip, midi_temp_buffer, advance_frames);
+			
 			if (is_sound_on && enable_music) {
-				for (int sample = 0; sample < advance_frames * 2; ++sample) {
-					((short*)stream)[sample] += temp_buffer[sample];
+				short* dest = (short*)stream;
+				for (int i = 0; i < advance_frames * 2; ++i) {
+					dest[i] += midi_temp_buffer[i];
 				}
 			}
-			free(temp_buffer);
 
 			frames_needed -= advance_frames;
 			stream += advance_frames * 4;
@@ -606,16 +644,52 @@ void midi_callback(void *userdata, Uint8 *stream, int len) {
 
 
 void stop_midi() {
+#ifdef POP_RP2350
+	uint32_t t0 = time_us_32() / 1000;
+	// Stop cached playback from SD card
+	if (midi_cache_playing) {
+		FIL* file_to_close = NULL;
+		
+		// CRITICAL: First pause audio to ensure callback is NOT running
+		// This prevents race condition where callback reads while we close file
+		SDL_PauseAudio(1);
+		
+		// Now safe to grab the file pointer and clear state
+		// No need for lock since callback won't run while paused
+		file_to_close = midi_stream_file;
+		midi_stream_file = NULL;
+		midi_cache_playing = 0;
+		midi_stream_samples_remaining = 0;
+		
+		// Close file - safe now since callback is paused
+		if (file_to_close) {
+			pop_fs_close(file_to_close);
+		}
+		// Audio remains paused - will be unpaused when new sound plays
+	}
+	printf("[MIDI @%ums] stop_midi: total time %ums\n", time_us_32() / 1000, time_us_32() / 1000 - t0);
+#endif
 	if (!midi_playing) return;
 //	SDL_PauseAudio(1);
 	SDL_LockAudio();
 	midi_playing = 0;
+	// Reset OPL chip to silence all notes immediately
+	if (digi_audiospec != NULL) {
+		opl_reset(digi_audiospec->freq);
+	}
 	free_parsed_midi(&parsed_midi);
 	SDL_UnlockAudio();
 }
 
 void free_midi_resources(void) {
 	free(instruments_data);
+#ifdef POP_RP2350
+	// Close any open stream
+	if (midi_stream_file) {
+		pop_fs_close(midi_stream_file);
+		midi_stream_file = NULL;
+	}
+#endif
 }
 
 void init_midi() {
@@ -642,24 +716,59 @@ void init_midi() {
 }
 
 void play_midi_sound(sound_buffer_type* buffer) {
+#ifdef POP_RP2350
+	uint32_t t0 = time_us_32() / 1000;
+	printf("[MIDI @%ums] play_midi_sound START\n", t0);
+#endif
 	stop_midi();
+#ifdef POP_RP2350
+	printf("[MIDI @%ums] stop_midi done\n", time_us_32() / 1000);
+#endif
 	if (buffer == NULL) return;
 	init_digi();
 	if (digi_unavailable) return;
 	init_midi();
+
+#ifdef POP_RP2350
+	// Find the sound_id by looking up the buffer in sound_pointers
+	extern sound_buffer_type* sound_pointers[];
+	extern const int max_sound_id;
+	int sound_id = -1;
+	for (int i = 0; i < max_sound_id; i++) {
+		if (sound_pointers[i] == buffer) {
+			sound_id = i;
+			break;
+		}
+	}
+	
+	printf("[MIDI @%ums] calling midi_play_from_cache\n", time_us_32() / 1000);
+	// Check if cached PCM file exists on SD card
+	if (sound_id >= 0 && midi_play_from_cache(sound_id)) {
+		printf("[MIDI @%ums] play_midi_sound END (cached)\n", time_us_32() / 1000);
+		return;  // Playing from cache
+	}
+	printf("MIDI %d: no cache, real-time\n", sound_id);
+#endif
 
 	if (!parse_midi((midi_raw_chunk_type*) &buffer->midi, &parsed_midi)) {
 		printf("Error reading MIDI music\n");
 		return;
 	}
 
-	// Initialize the OPL chip.
+	// Initialize the OPL chip at audio sample rate
 	opl_reset(digi_audiospec->freq);
+#ifndef POP_RP2350
 	opl_write_reg(0x105, 0x01); // OPL3 enable (note: the PoP1 Adlib sounds don't actually use OPL3 extensions)
-	for (int voice = 0; voice < NUM_OPL_VOICES; ++voice) {
-		opl_write_instrument(&instruments[0], voice);
+#endif
+	// Reset all voice and channel state arrays to prevent stale state from previous playback
+	last_used_voice = 0;
+	for (int voice = 0; voice < MAX_OPL_VOICES; ++voice) {
 		voice_instrument[voice] = 0;
 		voice_note[voice] = 0;
+		voice_channel[voice] = 0;
+	}
+	for (int voice = 0; voice < NUM_OPL_VOICES; ++voice) {
+		opl_write_instrument(&instruments[0], voice);
 	}
 	for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++) {
 		channel_instrument[channel] = channel;
@@ -678,3 +787,373 @@ void play_midi_sound(sound_buffer_type* buffer) {
 	midi_playing = 1;
 	SDL_PauseAudio(0);
 }
+
+#ifdef POP_RP2350
+// Pre-render a MIDI sound to PCM cache
+// Render a MIDI sound to PCM file on SD card (one-time operation)
+static void midi_render_to_file(int sound_id, sound_buffer_type* buffer) {
+	if (buffer == NULL) return;
+	if ((buffer->type & 7) != sound_midi) return;
+	
+	char filename[64];
+	midi_cache_filename(sound_id, filename, sizeof(filename));
+	
+	init_midi();
+	
+	parsed_midi_type render_midi;
+	if (!parse_midi((midi_raw_chunk_type*) &buffer->midi, &render_midi)) {
+		printf("midi_render: Failed to parse MIDI %d\n", sound_id);
+		return;
+	}
+	
+	printf("midi_render: snd %d -> %s\n", sound_id, filename);
+	
+	// Open output file
+	FIL* outfile = pop_fs_open(filename, "w");
+	if (!outfile) {
+		printf("midi_render: Can't create %s\n", filename);
+		free_parsed_midi(&render_midi);
+		return;
+	}
+	
+	// Write header: version magic + placeholder for sample count
+	int cache_version = MIDI_CACHE_VERSION;
+	pop_fs_write(&cache_version, sizeof(int), 1, outfile);
+	int placeholder = 0;
+	pop_fs_write(&placeholder, sizeof(int), 1, outfile);
+	
+	// Initialize OPL
+	opl_reset(MIDI_CACHE_SAMPLE_RATE);
+	last_used_voice = 0;
+	for (int voice = 0; voice < MAX_OPL_VOICES; ++voice) {
+		voice_instrument[voice] = 0;
+		voice_note[voice] = 0;
+		voice_channel[voice] = 0;
+	}
+	for (int voice = 0; voice < NUM_OPL_VOICES; ++voice) {
+		opl_write_instrument(&instruments[0], voice);
+	}
+	for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++) {
+		channel_instrument[channel] = channel;
+	}
+	
+	midi_current_pos = 0;
+	midi_current_pos_fract_part = 0;
+	ticks_to_next_pause = 0;
+	midi_tracks = render_midi.tracks;
+	num_midi_tracks = render_midi.num_tracks;
+	midi_semitones_higher = 0;
+	// Use default tempo with modifier (same as real-time playback)
+	us_per_beat = 500000;
+	current_midi_tempo_modifier = midi_tempo_modifiers[sound_id];
+	ticks_per_beat = render_midi.ticks_per_beat;
+	mixing_freq = MIDI_CACHE_SAMPLE_RATE;
+	
+	for (int t = 0; t < num_midi_tracks; t++) {
+		midi_track_type* track = &midi_tracks[t];
+		track->event_index = 0;
+		if (track->num_events > 0) {
+			track->next_pause_tick = track->events[0].delta_time;
+		} else {
+			track->next_pause_tick = INT64_MAX;
+		}
+	}
+	
+	// Render and write in chunks
+	// Render until MIDI finishes - based on real-time callback logic
+	int samples_rendered = 0;
+	int chunk_size = 512;
+	short temp_buf[1024];
+	int midi_finished = 0;
+	int max_samples = 180 * MIDI_CACHE_SAMPLE_RATE;  // 180s absolute max safety limit
+	
+	while (!midi_finished && samples_rendered < max_samples) {
+		int frames_needed = chunk_size;
+		
+		while (frames_needed > 0 && !midi_finished) {
+			if (ticks_to_next_pause > 0) {
+				// Generate audio while waiting for next MIDI event
+				int64_t us_to_next_pause = ticks_to_next_pause * us_per_beat / ticks_per_beat;
+				int64_t us_needed = frames_needed * ONE_SECOND_IN_US / mixing_freq;
+				int64_t advance_us = MIN(us_to_next_pause, us_needed);
+				int advance_frames = (int)(((advance_us * mixing_freq) + ONE_SECOND_IN_US - 1) / ONE_SECOND_IN_US);
+				if (advance_frames > frames_needed) advance_frames = frames_needed;
+				if (advance_frames > 512) advance_frames = 512;
+				if (advance_frames <= 0) advance_frames = 1;
+				advance_us = advance_frames * ONE_SECOND_IN_US / mixing_freq;
+				
+				OPL3_GenerateStream(&opl_chip, temp_buf, advance_frames);
+				pop_fs_write(temp_buf, sizeof(int16_t) * 2, advance_frames, outfile);
+				samples_rendered += advance_frames;
+				frames_needed -= advance_frames;
+				
+				float ticks_elapsed_float = (float)advance_us * ticks_per_beat / us_per_beat;
+				int64_t ticks_elapsed = (int64_t)ticks_elapsed_float;
+				midi_current_pos_fract_part += (ticks_elapsed_float - ticks_elapsed);
+				if (midi_current_pos_fract_part > 1.0f) {
+					midi_current_pos_fract_part -= 1.0f;
+					ticks_elapsed++;
+				}
+				midi_current_pos += ticks_elapsed;
+				ticks_to_next_pause -= ticks_elapsed;
+			} else {
+				// Process MIDI events
+				int num_finished_tracks = 0;
+				for (int t = 0; t < num_midi_tracks; t++) {
+					midi_track_type* track = &midi_tracks[t];
+					while (midi_current_pos >= track->next_pause_tick) {
+						int events_left = track->num_events - track->event_index;
+						if (events_left > 0) {
+							midi_event_type* event = &track->events[track->event_index];
+							track->event_index++;
+							process_midi_event(event);
+							
+							if (events_left > 1) {
+								midi_event_type* next = &track->events[track->event_index];
+								if (next->delta_time != 0) {
+									track->next_pause_tick += next->delta_time;
+								}
+							}
+						} else {
+							num_finished_tracks++;
+							break;
+						}
+					}
+				}
+				
+				if (num_finished_tracks >= num_midi_tracks) {
+					midi_finished = 1;
+					break;
+				}
+				
+				// Find next pause tick
+				int64_t first_next = INT64_MAX;
+				for (int t = 0; t < num_midi_tracks; t++) {
+					midi_track_type* track = &midi_tracks[t];
+					if (track->event_index >= track->num_events || midi_current_pos >= track->next_pause_tick) continue;
+					if (track->next_pause_tick < first_next) first_next = track->next_pause_tick;
+				}
+				if (first_next == INT64_MAX) {
+					midi_finished = 1;
+					break;
+				}
+				ticks_to_next_pause = (int)(first_next - midi_current_pos);
+				if (ticks_to_next_pause < 0) ticks_to_next_pause = 0;
+			}
+		}
+	}
+	
+	// Add tail for note decay (0.5 second of OPL output after MIDI ends)
+	// Allows sustained notes to fade naturally
+	int tail_samples = MIDI_CACHE_SAMPLE_RATE / 2;  // 0.5 seconds
+	for (int i = 0; i < tail_samples && samples_rendered < max_samples; i += chunk_size) {
+		int frames = (tail_samples - i < chunk_size) ? (tail_samples - i) : chunk_size;
+		OPL3_GenerateStream(&opl_chip, temp_buf, frames);
+		pop_fs_write(temp_buf, sizeof(int16_t) * 2, frames, outfile);
+		samples_rendered += frames;
+	}
+	
+	free_parsed_midi(&render_midi);
+	
+	// Write actual sample count after version magic (offset 4)
+	pop_fs_seek(outfile, sizeof(int), SEEK_SET);
+	pop_fs_write(&samples_rendered, sizeof(int), 1, outfile);
+	pop_fs_close(outfile);
+	
+	printf("midi_render: snd %d done, %d samples, %d KB\n", 
+	       sound_id, samples_rendered, (samples_rendered * 4 + 4) / 1024);
+}
+
+// Start playing cached MIDI from SD card file
+// If cache doesn't exist, generates it first (lazy caching)
+// Returns 1 if playback started from cache, 0 to fall back to real-time
+int midi_play_from_cache(int sound_id) {
+	extern sound_buffer_type* sound_pointers[];
+	extern const int max_sound_id;
+	
+	uint32_t t0 = time_us_32() / 1000;
+	printf("[MIDI @%ums] midi_play_from_cache: sound_id=%d\n", t0, sound_id);
+	
+	char filename[64];
+	midi_cache_filename(sound_id, filename, sizeof(filename));
+	
+	// If cache doesn't exist, generate it now (lazy)
+	printf("[MIDI @%ums] checking if file exists\n", time_us_32() / 1000);
+	if (!pop_fs_exists(filename)) {
+		printf("[MIDI @%ums] %s does not exist\n", time_us_32() / 1000, filename);
+		if (sound_id >= 0 && sound_id < max_sound_id && sound_pointers[sound_id] != NULL) {
+			printf("MIDI %d: generating cache (one-time)...\n", sound_id);
+			midi_render_to_file(sound_id, sound_pointers[sound_id]);
+		} else {
+			printf("midi_play_from_cache: cannot generate - sound_id=%d max=%d ptr=%p\n",
+			       sound_id, max_sound_id, sound_id >= 0 && sound_id < max_sound_id ? (void*)sound_pointers[sound_id] : NULL);
+		}
+		// If still doesn't exist, fall back to real-time
+		if (!pop_fs_exists(filename)) {
+			printf("midi_play_from_cache: still doesn't exist after render, falling back\n");
+			return 0;
+		}
+	} else {
+		printf("[MIDI @%ums] %s exists\n", time_us_32() / 1000, filename);
+	}
+	
+	// Close any existing stream
+	if (midi_stream_file) {
+		printf("[MIDI @%ums] closing old stream\n", time_us_32() / 1000);
+		pop_fs_close(midi_stream_file);
+		midi_stream_file = NULL;
+		printf("[MIDI @%ums] old stream closed\n", time_us_32() / 1000);
+	}
+	
+	printf("[MIDI @%ums] opening cache file\n", time_us_32() / 1000);
+	FIL* f = pop_fs_open(filename, "r");
+	printf("[MIDI @%ums] cache file opened\n", time_us_32() / 1000);
+	if (!f) {
+		printf("midi_play_from_cache: failed to open %s\n", filename);
+		return 0;
+	}
+	
+	// Read header: version magic + sample count
+	int file_version = 0;
+	int total_samples = 0;
+	size_t read_count = pop_fs_read(&file_version, sizeof(int), 1, f);
+	size_t read_count2 = pop_fs_read(&total_samples, sizeof(int), 1, f);
+	
+	// Check for version mismatch or corrupt file
+	int needs_regen = 0;
+	if (read_count != 1 || read_count2 != 1) {
+		printf("midi_play_from_cache: bad header read, deleting stale file\n");
+		needs_regen = 1;
+	} else if (file_version != MIDI_CACHE_VERSION) {
+		printf("midi_play_from_cache: version mismatch (file=0x%08X want=0x%08X), regenerating\n", 
+		       file_version, MIDI_CACHE_VERSION);
+		needs_regen = 1;
+	} else if (total_samples <= 0) {
+		printf("midi_play_from_cache: bad sample count=%d, regenerating\n", total_samples);
+		needs_regen = 1;
+	}
+	
+	if (needs_regen) {
+		pop_fs_close(f);
+		// Delete stale/corrupt cache file so it can be regenerated
+		pop_fs_delete(filename);
+		// Try to regenerate
+		if (sound_id >= 0 && sound_id < max_sound_id && sound_pointers[sound_id] != NULL) {
+			printf("MIDI %d: regenerating cache...\n", sound_id);
+			midi_render_to_file(sound_id, sound_pointers[sound_id]);
+			// Try opening again
+			f = pop_fs_open(filename, "r");
+			if (f) {
+				read_count = pop_fs_read(&file_version, sizeof(int), 1, f);
+				read_count2 = pop_fs_read(&total_samples, sizeof(int), 1, f);
+				if (read_count == 1 && read_count2 == 1 && 
+				    file_version == MIDI_CACHE_VERSION && total_samples > 0) {
+					printf("midi_play_from_cache: regeneration successful, samples=%d\n", total_samples);
+					goto play_from_file;
+				}
+				pop_fs_close(f);
+			}
+		}
+		return 0;
+	}
+
+play_from_file:
+	
+	midi_stream_file = f;
+	midi_stream_samples_remaining = total_samples;
+	midi_stream_buffer_pos = 0;
+	midi_stream_buffer_valid = 0;
+	midi_cache_playing = 1;
+	midi_playing = 1;
+	
+	printf("[MIDI @%ums] Playing cached MIDI %d (%d samples = %.1fs from SD)\n", 
+	       time_us_32() / 1000, sound_id, total_samples, total_samples / 22050.0f);
+	SDL_PauseAudio(0);
+	return 1;
+}
+
+// Audio callback for streaming cached MIDI from SD card
+// Called from audio_callback in seg009.c
+// Upsamples from 22050 Hz to 44100 Hz (2x)
+void midi_cached_callback(void *userdata, Uint8 *stream, int len) {
+	(void)userdata;
+	
+	if (!midi_cache_playing || !midi_stream_file) {
+		midi_cache_playing = 0;
+		return;
+	}
+	
+	int16_t* out = (int16_t*)stream;
+	int frames_needed = len / (2 * sizeof(int16_t));  // Stereo 16-bit output at 44100
+	int frames_written = 0;
+	
+	while (frames_written < frames_needed && midi_stream_samples_remaining > 0) {
+		// Refill buffer if needed
+		if (midi_stream_buffer_pos >= midi_stream_buffer_valid) {
+			int to_read = MIDI_STREAM_BUFFER_SIZE;
+			if (to_read > midi_stream_samples_remaining) {
+				to_read = midi_stream_samples_remaining;
+			}
+			int read = pop_fs_read(midi_stream_buffer, sizeof(int16_t) * 2, to_read, midi_stream_file);
+			if (read <= 0) {
+				midi_stream_samples_remaining = 0;
+				break;
+			}
+			midi_stream_buffer_valid = read;
+			midi_stream_buffer_pos = 0;
+		}
+		
+		// Output with 2x upsampling (22050 -> 44100)
+		while (frames_written < frames_needed && 
+		       midi_stream_buffer_pos < midi_stream_buffer_valid &&
+		       midi_stream_samples_remaining > 0) {
+			int16_t left = midi_stream_buffer[midi_stream_buffer_pos * 2];
+			int16_t right = midi_stream_buffer[midi_stream_buffer_pos * 2 + 1];
+			
+			// Output same sample twice for 2x upsample
+			out[frames_written * 2] = left;
+			out[frames_written * 2 + 1] = right;
+			frames_written++;
+			
+			if (frames_written < frames_needed) {
+				out[frames_written * 2] = left;
+				out[frames_written * 2 + 1] = right;
+				frames_written++;
+			}
+			
+			midi_stream_buffer_pos++;
+			midi_stream_samples_remaining--;
+		}
+	}
+	
+	// Fill remaining with silence
+	while (frames_written < frames_needed) {
+		out[frames_written * 2] = 0;
+		out[frames_written * 2 + 1] = 0;
+		frames_written++;
+	}
+	
+	// Check if done - DON'T close file in callback!
+	// The file will be closed by stop_midi() or when a new MIDI starts
+	// Closing here would block HDMI DMA IRQ via SD card operations
+	if (midi_stream_samples_remaining <= 0) {
+		printf("[MIDI @%ums] Playback finished\n", time_us_32() / 1000);
+		// Just flag as done - stop_midi() will handle cleanup
+		midi_cache_playing = 0;
+		midi_playing = 0;
+		// Note: midi_stream_file left open - will be closed on next stop_midi or new MIDI start
+	}
+}
+
+// Initialize MIDI cache directory (called at startup, non-blocking)
+void midi_generate_cache_files(void) {
+	printf("midi_generate_cache_files: creating data/midi_cache dir...\n");
+	// Just create the directory - actual cache files are generated lazily on first play
+	if (!pop_fs_mkdir("data/midi_cache")) {
+		printf("Warning: Could not create midi_cache directory\n");
+	} else {
+		printf("midi_generate_cache_files: directory created/exists OK\n");
+	}
+	printf("MIDI cache directory ready.\n");
+}
+#endif
