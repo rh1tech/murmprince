@@ -20,6 +20,12 @@ The authors of this program may be contacted at https://forum.princed.org
 
 #include "common.h"
 
+#ifdef POP_RP2350
+#include <setjmp.h>
+// Defined in seg009.c
+extern jmp_buf pop_quit_jmp_buf;
+extern int pop_quit_requested;
+#endif
 
 #ifdef __amigaos4__
 static const char version[] = "\0$VER: SDLPoP " SDLPOP_VERSION " (" __AMIGADATE__ ")";
@@ -37,6 +43,17 @@ int main(int argc, char *argv[])
 	#endif
 	g_argc = argc;
 	g_argv = argv;
+	
+#ifdef POP_RP2350
+	// Use setjmp to allow quit() to return here instead of calling exit()
+	pop_quit_requested = 0;
+	int jmp_result = setjmp(pop_quit_jmp_buf);
+	if (jmp_result != 0) {
+		// Returned from quit() via longjmp
+		return jmp_result;
+	}
+#endif
+	
 	pop_main();
 	return 0;
 }

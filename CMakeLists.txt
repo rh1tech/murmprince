@@ -189,6 +189,7 @@ add_executable(murmprince
     src/main.c
     src/pop_fs.c
     src/rp2350_alloc_trace.c
+    src/start_screen.c
 )
 
 if(USE_REAL_SDL2)
@@ -258,11 +259,20 @@ target_include_directories(murmprince PRIVATE src drivers)
 
 target_compile_options(murmprince PRIVATE -Ofast)
 
+# Inject version.txt as a compile-time string.
+file(READ "${CMAKE_CURRENT_LIST_DIR}/version.txt" MURMPRINCE_VERSION_RAW)
+string(STRIP "${MURMPRINCE_VERSION_RAW}" MURMPRINCE_VERSION_RAW)
+string(REGEX REPLACE "[ \t]+" "." MURMPRINCE_VERSION "${MURMPRINCE_VERSION_RAW}")
+
 target_compile_definitions(murmprince PRIVATE
     BOARD_${BOARD_VARIANT}
     CPU_CLOCK_MHZ=${CPU_SPEED}
     CPU_VOLTAGE=${CPU_VOLTAGE}
     PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
+    DBOARD_VARIANT="${BOARD_VARIANT}"
+    DCPU_SPEED=${CPU_SPEED}
+    DPSRAM_SPEED=${PSRAM_SPEED}
+    MURMPRINCE_VERSION="${MURMPRINCE_VERSION}"
     POP_RP2350
     RP2350_FORCE_TEST_PATTERN=${RP2350_FORCE_TEST_PATTERN}
     RP2350_DUMP_FIRST_FRAME_BYTES=${RP2350_DUMP_FIRST_FRAME_BYTES}

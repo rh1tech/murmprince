@@ -154,11 +154,11 @@ picotool load -f build-make/murmprince.uf2
 ## SD Card Setup
 
 1. Format an SD card as FAT32
-2. Copy the `data` folder from SDLPoP to the SD card root
+2. Copy the `data` folder to the SD card root
 
 ### Upgrading from Version 1.00
 
-When upgrading from version 1.00, copy the `third_party/SDLPoP/data/midi_cache` directory to your SD card's `data` folder.
+When upgrading from version 1.00, copy the `data/midi_cache` directory to your SD card's `data` folder.
 
 **Note:** The MIDI cache contains pre-rendered audio for all MIDI music tracks (~62 MB). If the cache files are missing or outdated, they will be regenerated automatically during gameplay. Regeneration takes additional time during game loading.
 

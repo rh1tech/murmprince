@@ -1,6 +1,6 @@
 /*
  * murmprince - Prince of Persia (SDLPoP) RP2350 port
- * Entry point: init HDMI + PSRAM + SD, then run SDLPoP.
+ * Entry point: init HDMI + PSRAM + SD, show start screen, then run SDLPoP.
  */
 
 #include "pico/stdlib.h"
@@ -19,6 +19,7 @@
 #include "psram_allocator.h"
 #include "pop_fs.h"
 #include "ps2kbd/ps2kbd_wrapper.h"
+#include "start_screen.h"
 
 // USB HID keyboard support (optional)
 #ifdef USB_HID_ENABLED
@@ -183,14 +184,6 @@ int main(void) {
     sleep_ms(2000);
 #endif
 
-    DBG_PRINTF("Mounting SD...\n");
-    if (!pop_fs_init()) {
-        printf("SD mount failed. Halting.\n");
-        while (true) {
-            tight_loop_contents();
-        }
-    }
-
     DBG_PRINTF("Initializing PS/2 keyboard...\n");
     ps2kbd_init();
 
@@ -199,11 +192,35 @@ int main(void) {
     usbhid_sdl_init();
 #endif
 
-    DBG_PRINTF("Starting SDLPoP...\n");
-    char *argv[] = {"prince", NULL};
-    int rc = sdlpop_entry(1, argv);
-    printf("SDLPoP exited (rc=%d). Halting.\n", rc);
+    // Main loop: show start screen, run game, repeat on quit
     while (true) {
-        tight_loop_contents();
+        // Check SD card and data directory
+        DBG_PRINTF("Checking SD card and game data...\n");
+        start_error_t err = start_screen_check_requirements();
+        
+        // Show start screen (waits for keypress if no error)
+        DBG_PRINTF("Showing start screen...\n");
+        start_screen_show(err, NULL);
+        
+        // If there was an error, the start screen loops forever
+        // (user must fix and reset), so we only get here if OK
+        
+        // Reset palette for game
+        setup_basic_palette();
+        
+        // Clear screen
+        memset(graphics_buffer, 0, FRAME_W * FRAME_H);
+        
+        DBG_PRINTF("Starting SDLPoP...\n");
+        char *argv[] = {"prince", NULL};
+        int rc = sdlpop_entry(1, argv);
+        
+        DBG_PRINTF("SDLPoP exited (rc=%d). Returning to start screen...\n", rc);
+        
+        // Brief delay before showing start screen again
+        sleep_ms(500);
     }
+    
+    // Never reached
+    return 0;
 }

@@ -14,17 +14,30 @@
 static FATFS g_fs;
 static bool g_mounted = false;
 
+// Reset mounted state (call before start screen check on re-entry)
+void pop_fs_reset(void) {
+    g_mounted = false;
+}
+
 bool pop_fs_init(void) {
     if (g_mounted) return true;
 
     // Ensure physical drive is initialized.
-    (void)disk_initialize(0);
+    DSTATUS ds = disk_initialize(0);
+    if (ds & STA_NOINIT) {
+        // Disk initialization failed
+        return false;
+    }
 
     // Mount as logical drive 0:
     FRESULT fr = f_mount(&g_fs, "0:", 1);
     if (fr != FR_OK) {
         return false;
     }
+    
+    // Set current directory to root (required for relative paths to work)
+    f_chdir("/");
+    
     g_mounted = true;
     return true;
 }

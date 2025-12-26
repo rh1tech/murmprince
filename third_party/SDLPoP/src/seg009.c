@@ -23,6 +23,10 @@ The authors of this program may be contacted at https://forum.princed.org
 #include "psram_allocator.h"
 #include "HDMI.h"
 #include "pico/stdlib.h"  // for sleep_us
+#include <setjmp.h>
+// Jump buffer for returning to main loop on quit (instead of exit())
+jmp_buf pop_quit_jmp_buf;
+int pop_quit_requested = 0;
 #endif
 #include <time.h>
 #include <errno.h>
@@ -403,7 +407,14 @@ int round_xpos_to_byte(int xpos,int round_direction) {
 // seg009:0C7A
 void quit(int exit_code) {
 	restore_stuff();
+#ifdef POP_RP2350
+	// On RP2350, longjmp back to main loop instead of exit()
+	// This allows returning to the start screen
+	pop_quit_requested = 1;
+	longjmp(pop_quit_jmp_buf, exit_code ? exit_code : 1);
+#else
 	exit(exit_code);
+#endif
 }
 
 // seg009:0C90
