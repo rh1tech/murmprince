@@ -11,5 +11,6 @@ target_include_directories(audio_driver INTERFACE
 target_link_libraries(audio_driver INTERFACE
     pico_audio_i2s
     pico_sync
+    pico_multicore
     hardware_gpio
 )

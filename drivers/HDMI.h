@@ -6,7 +6,8 @@
 #include "stdbool.h"
 #include "hardware/dma.h" // Added for DMA_IRQ_0
 
-#define VIDEO_DMA_IRQ (DMA_IRQ_0)
+// Use DMA_IRQ_1 for HDMI to avoid conflict with audio on DMA_IRQ_0
+#define VIDEO_DMA_IRQ (DMA_IRQ_1)
 
 #ifndef HDMI_BASE_PIN
 #define HDMI_BASE_PIN (6)

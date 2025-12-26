@@ -218,8 +218,9 @@ else()
         RP_SDL_FEATURE_GAMECONTROLLER=0
         RP_SDL_FEATURE_HAPTIC=0
         # I2S Audio Configuration
+        # Audio uses DMA_IRQ_0, HDMI uses DMA_IRQ_1 (set in HDMI.h)
         PICO_AUDIO_I2S_PIO=0
-        PICO_AUDIO_I2S_DMA_IRQ=1
+        PICO_AUDIO_I2S_DMA_IRQ=0
     )
 
     # Board-specific I2S pin definitions
