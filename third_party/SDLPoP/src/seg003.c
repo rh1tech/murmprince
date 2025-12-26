@@ -29,6 +29,12 @@ sbyte distance_mirror;
 
 // seg003:0000
 void init_game(int level) {
+#ifdef POP_RP2350
+	// Stop any playing music/sounds FIRST, before any heavy loading
+	// This prevents HDMI signal loss when title screen music is still playing
+	// during level loading (SD card I/O + MIDI streaming conflict)
+	stop_sounds();
+#endif
 	if(offscreen_surface) {
 		free_surface(offscreen_surface); // missing in original
 		offscreen_surface = NULL;
