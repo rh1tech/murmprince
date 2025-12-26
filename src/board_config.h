@@ -8,7 +8,7 @@
 // Debug Output Configuration
 //=============================================================================
 #ifndef MURMPRINCE_DEBUG
-#define MURMPRINCE_DEBUG 1
+#define MURMPRINCE_DEBUG 0
 #endif
 
 #if MURMPRINCE_DEBUG

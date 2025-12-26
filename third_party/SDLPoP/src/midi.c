@@ -32,6 +32,13 @@ CREDITS:
 
 #ifdef POP_RP2350
 #include "psram_allocator.h"
+// MIDI debug output - set to 1 to enable verbose logging
+#define MIDI_DEBUG 0
+#if MIDI_DEBUG
+#define MIDI_DBG(...) printf(__VA_ARGS__)
+#else
+#define MIDI_DBG(...) ((void)0)
+#endif
 #endif
 
 #define MAX_MIDI_CHANNELS 16
@@ -668,7 +675,7 @@ void stop_midi() {
 		}
 		// Audio remains paused - will be unpaused when new sound plays
 	}
-	printf("[MIDI @%ums] stop_midi: total time %ums\n", time_us_32() / 1000, time_us_32() / 1000 - t0);
+	MIDI_DBG("[MIDI @%ums] stop_midi: total time %ums\n", time_us_32() / 1000, time_us_32() / 1000 - t0);
 #endif
 	if (!midi_playing) return;
 //	SDL_PauseAudio(1);
@@ -708,7 +715,7 @@ void init_midi() {
 		num_instruments = *(byte*)instruments_data;
 		if (size == 1 + num_instruments*(int)sizeof(instrument_type)) {
 			instruments = (instrument_type*) ((byte*)instruments_data+1);
-			printf("[MIDI] init_midi: loaded %d instruments from PRINCE.DAT (size=%d)\n", num_instruments, size);
+			MIDI_DBG("[MIDI] init_midi: loaded %d instruments from PRINCE.DAT (size=%d)\n", num_instruments, size);
 		} else {
 			printf("MIDI instruments data (resource 1) is not the expected size (got %d, expected %d)\n", 
 			       size, 1 + num_instruments*(int)sizeof(instrument_type));
@@ -721,11 +728,11 @@ void init_midi() {
 void play_midi_sound(sound_buffer_type* buffer) {
 #ifdef POP_RP2350
 	uint32_t t0 = time_us_32() / 1000;
-	printf("[MIDI @%ums] play_midi_sound START\n", t0);
+	MIDI_DBG("[MIDI @%ums] play_midi_sound START\n", t0);
 #endif
 	stop_midi();
 #ifdef POP_RP2350
-	printf("[MIDI @%ums] stop_midi done\n", time_us_32() / 1000);
+	MIDI_DBG("[MIDI @%ums] stop_midi done\n", time_us_32() / 1000);
 #endif
 	if (buffer == NULL) return;
 	init_digi();
@@ -744,10 +751,10 @@ void play_midi_sound(sound_buffer_type* buffer) {
 		}
 	}
 	
-	printf("[MIDI @%ums] calling midi_play_from_cache\n", time_us_32() / 1000);
+	MIDI_DBG("[MIDI @%ums] calling midi_play_from_cache\n", time_us_32() / 1000);
 	// Check if cached PCM file exists on SD card
 	if (sound_id >= 0 && midi_play_from_cache(sound_id)) {
-		printf("[MIDI @%ums] play_midi_sound END (cached)\n", time_us_32() / 1000);
+		MIDI_DBG("[MIDI @%ums] play_midi_sound END (cached)\n", time_us_32() / 1000);
 		return;  // Playing from cache
 	}
 	printf("MIDI %d: no cache, real-time\n", sound_id);
@@ -1001,15 +1008,15 @@ int midi_play_from_cache(int sound_id) {
 	extern const int max_sound_id;
 	
 	uint32_t t0 = time_us_32() / 1000;
-	printf("[MIDI @%ums] midi_play_from_cache: sound_id=%d\n", t0, sound_id);
+	MIDI_DBG("[MIDI @%ums] midi_play_from_cache: sound_id=%d\n", t0, sound_id);
 	
 	char filename[64];
 	midi_cache_filename(sound_id, filename, sizeof(filename));
 	
 	// If cache doesn't exist, generate it now (lazy)
-	printf("[MIDI @%ums] checking if file exists\n", time_us_32() / 1000);
+	MIDI_DBG("[MIDI @%ums] checking if file exists\n", time_us_32() / 1000);
 	if (!pop_fs_exists(filename)) {
-		printf("[MIDI @%ums] %s does not exist\n", time_us_32() / 1000, filename);
+		MIDI_DBG("[MIDI @%ums] %s does not exist\n", time_us_32() / 1000, filename);
 		if (sound_id >= 0 && sound_id < max_sound_id && sound_pointers[sound_id] != NULL) {
 			printf("MIDI %d: generating cache (one-time)...\n", sound_id);
 			midi_render_to_file(sound_id, sound_pointers[sound_id]);
@@ -1023,20 +1030,20 @@ int midi_play_from_cache(int sound_id) {
 			return 0;
 		}
 	} else {
-		printf("[MIDI @%ums] %s exists\n", time_us_32() / 1000, filename);
+		MIDI_DBG("[MIDI @%ums] %s exists\n", time_us_32() / 1000, filename);
 	}
 	
 	// Close any existing stream
 	if (midi_stream_file) {
-		printf("[MIDI @%ums] closing old stream\n", time_us_32() / 1000);
+		MIDI_DBG("[MIDI @%ums] closing old stream\n", time_us_32() / 1000);
 		pop_fs_close(midi_stream_file);
 		midi_stream_file = NULL;
-		printf("[MIDI @%ums] old stream closed\n", time_us_32() / 1000);
+		MIDI_DBG("[MIDI @%ums] old stream closed\n", time_us_32() / 1000);
 	}
 	
-	printf("[MIDI @%ums] opening cache file\n", time_us_32() / 1000);
+	MIDI_DBG("[MIDI @%ums] opening cache file\n", time_us_32() / 1000);
 	FIL* f = pop_fs_open(filename, "r");
-	printf("[MIDI @%ums] cache file opened\n", time_us_32() / 1000);
+	MIDI_DBG("[MIDI @%ums] cache file opened\n", time_us_32() / 1000);
 	if (!f) {
 		printf("midi_play_from_cache: failed to open %s\n", filename);
 		return 0;
@@ -1103,7 +1110,7 @@ play_from_file:
 	midi_cache_playing = 1;
 	midi_playing = 1;
 	
-	printf("[MIDI @%ums] Playing cached MIDI %d (%d samples = %.1fs from SD)\n", 
+	MIDI_DBG("[MIDI @%ums] Playing cached MIDI %d (%d samples = %.1fs from SD)\n", 
 	       time_us_32() / 1000, sound_id, total_samples, total_samples / 44100.0f);
 	SDL_PauseAudio(0);
 	return 1;
@@ -1140,7 +1147,7 @@ void midi_cached_callback(void *userdata, Uint8 *stream, int len) {
 			int read = pop_fs_read(midi_stream_buffer, sizeof(int16_t) * 2, to_read, midi_stream_file);
 			if (read <= 0) {
 				if (debug_count < 5) {
-					printf("[MIDI CACHE] pop_fs_read returned %d (requested %d)\n", read, to_read);
+					MIDI_DBG("[MIDI CACHE] pop_fs_read returned %d (requested %d)\n", read, to_read);
 				}
 				midi_stream_samples_remaining = 0;
 				break;
@@ -1152,7 +1159,7 @@ void midi_cached_callback(void *userdata, Uint8 *stream, int len) {
 			if (debug_count < 3) {
 				int16_t first_l = midi_stream_buffer[0];
 				int16_t first_r = midi_stream_buffer[1];
-				printf("[MIDI CACHE] Read %d frames, first sample: L=%d R=%d\n", read, first_l, first_r);
+				MIDI_DBG("[MIDI CACHE] Read %d frames, first sample: L=%d R=%d\n", read, first_l, first_r);
 			}
 		}
 		
@@ -1181,14 +1188,14 @@ void midi_cached_callback(void *userdata, Uint8 *stream, int len) {
 	
 	// Debug output once per playback
 	if (debug_count < 3) {
-		printf("[MIDI CACHE] Callback: wrote %d frames, max_sample=%d, remaining=%d\n", 
+		MIDI_DBG("[MIDI CACHE] Callback: wrote %d frames, max_sample=%d, remaining=%d\n", 
 		       frames_written, max_sample, midi_stream_samples_remaining);
 		debug_count++;
 	}
 	
 	// Check if done
 	if (midi_stream_samples_remaining <= 0) {
-		printf("[MIDI @%ums] Playback finished (max_sample=%d)\n", time_us_32() / 1000, max_sample);
+		MIDI_DBG("[MIDI @%ums] Playback finished (max_sample=%d)\n", time_us_32() / 1000, max_sample);
 		debug_count = 0;  // Reset for next playback
 		midi_cache_playing = 0;
 		midi_playing = 0;
@@ -1200,12 +1207,12 @@ void midi_generate_cache_files(void) {
 	extern sound_buffer_type* sound_pointers[];
 	extern const int max_sound_id;
 	
-	printf("midi_generate_cache_files: creating data/midi_cache dir...\n");
+	MIDI_DBG("midi_generate_cache_files: creating data/midi_cache dir...\n");
 	// Create the directory first
 	if (!pop_fs_mkdir("data/midi_cache")) {
 		printf("Warning: Could not create midi_cache directory\n");
 	} else {
-		printf("midi_generate_cache_files: directory created/exists OK\n");
+		MIDI_DBG("midi_generate_cache_files: directory created/exists OK\n");
 	}
 	
 	// Check each sound pointer for MIDI sounds and pre-generate missing/stale cache files
@@ -1268,6 +1275,6 @@ void midi_generate_cache_files(void) {
 	if (generated_count > 0) {
 		printf("MIDI cache: pre-generated %d files.\n", generated_count);
 	}
-	printf("MIDI cache directory ready.\n");
+	MIDI_DBG("MIDI cache directory ready.\n");
 }
 #endif

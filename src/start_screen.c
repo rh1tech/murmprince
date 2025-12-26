@@ -324,7 +324,7 @@ static bool poll_any_key(void) {
     
 #ifdef USB_HID_ENABLED
     // Poll USB HID keyboard
-    usbhid_sdl_poll();
+    usbhid_sdl_tick();
     int usb_pressed, usb_scancode, usb_modifier;
     if (usbhid_sdl_get_key(&usb_pressed, &usb_scancode, &usb_modifier)) {
         if (usb_pressed) {
@@ -345,87 +345,87 @@ start_error_t start_screen_check_requirements(void) {
     sleep_ms(100);
     
     // Try to init filesystem
-    printf("[start_screen] Initializing filesystem...\n");
+    DBG_PRINTF("[start_screen] Initializing filesystem...\n");
     if (!pop_fs_init()) {
-        printf("[start_screen] pop_fs_init() FAILED\n");
+        DBG_PRINTF("[start_screen] pop_fs_init() FAILED\n");
         return START_ERROR_NO_SD;
     }
-    printf("[start_screen] Filesystem mounted OK\n");
+    DBG_PRINTF("[start_screen] Filesystem mounted OK\n");
     
     // Debug: list root directory contents
-    printf("[start_screen] Listing root directory:\n");
+    DBG_PRINTF("[start_screen] Listing root directory:\n");
     DIR dir;
     FILINFO fno;
     FRESULT fr = f_opendir(&dir, "/");
     if (fr != FR_OK) {
-        printf("[start_screen] f_opendir('/') failed: %d\n", (int)fr);
+        DBG_PRINTF("[start_screen] f_opendir('/') failed: %d\n", (int)fr);
     } else {
         int count = 0;
         for (;;) {
             fr = f_readdir(&dir, &fno);
             if (fr != FR_OK || fno.fname[0] == 0) break;
-            printf("  %c %s\n", (fno.fattrib & AM_DIR) ? 'D' : 'F', fno.fname);
+            DBG_PRINTF("  %c %s\n", (fno.fattrib & AM_DIR) ? 'D' : 'F', fno.fname);
             count++;
         }
         f_closedir(&dir);
-        printf("[start_screen] Found %d entries\n", count);
+        DBG_PRINTF("[start_screen] Found %d entries\n", count);
     }
     
     // Debug: list data directory contents
-    printf("[start_screen] Listing data directory:\n");
+    DBG_PRINTF("[start_screen] Listing data directory:\n");
     fr = f_opendir(&dir, "data");
     if (fr != FR_OK) {
-        printf("[start_screen] f_opendir('data') failed: %d\n", (int)fr);
+        DBG_PRINTF("[start_screen] f_opendir('data') failed: %d\n", (int)fr);
     } else {
         int count = 0;
         for (;;) {
             fr = f_readdir(&dir, &fno);
             if (fr != FR_OK || fno.fname[0] == 0) break;
-            printf("  %c %s\n", (fno.fattrib & AM_DIR) ? 'D' : 'F', fno.fname);
+            DBG_PRINTF("  %c %s\n", (fno.fattrib & AM_DIR) ? 'D' : 'F', fno.fname);
             count++;
         }
         f_closedir(&dir);
-        printf("[start_screen] Found %d entries in data/\n", count);
+        DBG_PRINTF("[start_screen] Found %d entries in data/\n", count);
     }
     
     // Try to find game data files
     // Check for PRINCE.DAT first, but also check for GUARD.DAT (always present)
     // since some setups use unpacked data (PRINCE directory instead of PRINCE.DAT)
-    printf("[start_screen] Checking for game data files...\n");
+    DBG_PRINTF("[start_screen] Checking for game data files...\n");
     
     // Check in root first
     fr = f_stat("PRINCE.DAT", &fno);
-    printf("[start_screen] f_stat('PRINCE.DAT') = %d\n", (int)fr);
+    DBG_PRINTF("[start_screen] f_stat('PRINCE.DAT') = %d\n", (int)fr);
     if (fr == FR_OK) {
-        printf("[start_screen] Found PRINCE.DAT in root, size: %lu\n", (unsigned long)fno.fsize);
+        DBG_PRINTF("[start_screen] Found PRINCE.DAT in root, size: %lu\n", (unsigned long)fno.fsize);
         return START_OK;
     }
     
     // Check in data/ directory
     fr = f_stat("data/PRINCE.DAT", &fno);
-    printf("[start_screen] f_stat('data/PRINCE.DAT') = %d\n", (int)fr);
+    DBG_PRINTF("[start_screen] f_stat('data/PRINCE.DAT') = %d\n", (int)fr);
     if (fr == FR_OK) {
-        printf("[start_screen] Found data/PRINCE.DAT, size: %lu\n", (unsigned long)fno.fsize);
+        DBG_PRINTF("[start_screen] Found data/PRINCE.DAT, size: %lu\n", (unsigned long)fno.fsize);
         return START_OK;
     }
     
     // Check for unpacked format (PRINCE directory or other DAT files)
     fr = f_stat("data/GUARD.DAT", &fno);
-    printf("[start_screen] f_stat('data/GUARD.DAT') = %d\n", (int)fr);
+    DBG_PRINTF("[start_screen] f_stat('data/GUARD.DAT') = %d\n", (int)fr);
     if (fr == FR_OK) {
-        printf("[start_screen] Found data/GUARD.DAT (unpacked format), size: %lu\n", (unsigned long)fno.fsize);
+        DBG_PRINTF("[start_screen] Found data/GUARD.DAT (unpacked format), size: %lu\n", (unsigned long)fno.fsize);
         return START_OK;
     }
     
     // Check for PRINCE directory (unpacked format)
     fr = f_stat("data/PRINCE", &fno);
-    printf("[start_screen] f_stat('data/PRINCE') = %d\n", (int)fr);
+    DBG_PRINTF("[start_screen] f_stat('data/PRINCE') = %d\n", (int)fr);
     if (fr == FR_OK && (fno.fattrib & AM_DIR)) {
-        printf("[start_screen] Found data/PRINCE directory (unpacked format)\n");
+        DBG_PRINTF("[start_screen] Found data/PRINCE directory (unpacked format)\n");
         return START_OK;
     }
     
-    printf("[start_screen] No game data found, returning error\n");
+    DBG_PRINTF("[start_screen] No game data found, returning error\n");
     return START_ERROR_NO_DATA_DIR;
 }
 
