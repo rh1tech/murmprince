@@ -41,10 +41,10 @@ void psram_set_temp_mode(int enable) {
         int lock_num = spin_lock_claim_unused(true);
         psram_lock = spin_lock_instance(lock_num);
     }
-    uint32_t save = save_and_disable_interrupts();
-    spin_lock_blocking(psram_lock);
+    // Use spin lock WITHOUT disabling interrupts - HDMI IRQ must keep running
+    spin_lock_unsafe_blocking(psram_lock);
     psram_temp_mode = enable;
-    spin_unlock(psram_lock, save);
+    spin_unlock_unsafe(psram_lock);
 }
 
 void psram_set_sram_mode(int enable) {
@@ -56,10 +56,10 @@ void psram_reset_temp(void) {
         int lock_num = spin_lock_claim_unused(true);
         psram_lock = spin_lock_instance(lock_num);
     }
-    uint32_t save = save_and_disable_interrupts();
-    spin_lock_blocking(psram_lock);
+    // Use spin lock WITHOUT disabling interrupts
+    spin_lock_unsafe_blocking(psram_lock);
     psram_temp_offset = 0;
-    spin_unlock(psram_lock, save);
+    spin_unlock_unsafe(psram_lock);
 }
 
 size_t psram_get_temp_offset(void) {
@@ -71,10 +71,10 @@ void psram_set_temp_offset(size_t offset) {
         int lock_num = spin_lock_claim_unused(true);
         psram_lock = spin_lock_instance(lock_num);
     }
-    uint32_t save = save_and_disable_interrupts();
-    spin_lock_blocking(psram_lock);
+    // Use spin lock WITHOUT disabling interrupts
+    spin_lock_unsafe_blocking(psram_lock);
     psram_temp_offset = offset;
-    spin_unlock(psram_lock, save);
+    spin_unlock_unsafe(psram_lock);
 }
 
 void *psram_malloc(size_t size) {
@@ -88,8 +88,9 @@ void *psram_malloc(size_t size) {
         psram_lock = spin_lock_instance(lock_num);
     }
 
-    uint32_t save = save_and_disable_interrupts();
-    spin_lock_blocking(psram_lock);
+    // Use spin lock WITHOUT disabling interrupts - HDMI IRQ must keep running
+    // The bump allocator is simple enough that it's safe even if interrupted
+    spin_lock_unsafe_blocking(psram_lock);
     
     // Align to 4 bytes
     size = (size + 3) & ~3;
@@ -100,19 +101,19 @@ void *psram_malloc(size_t size) {
     if (psram_temp_mode) {
         if (psram_temp_offset + total_size > TEMP_SIZE) {
             DBG_PRINTF("PSRAM Temp OOM! Req %d, free %d\n", (int)size, (int)(TEMP_SIZE - psram_temp_offset));
-            spin_unlock(psram_lock, save);
+            spin_unlock_unsafe(psram_lock);
             return NULL;
         }
         size_t *header = (size_t *)(psram_start + PERM_SIZE + psram_temp_offset);
         *header = size;
         void *ptr = (void *)(header + 1);
         psram_temp_offset += total_size;
-        spin_unlock(psram_lock, save);
+        spin_unlock_unsafe(psram_lock);
         return ptr;
     } else {
         if (psram_offset + total_size > PERM_SIZE) {
             DBG_PRINTF("PSRAM Perm OOM! Req %d, free %d\n", (int)size, (int)(PERM_SIZE - psram_offset));
-            spin_unlock(psram_lock, save);
+            spin_unlock_unsafe(psram_lock);
             return NULL;
         }
         
@@ -122,7 +123,7 @@ void *psram_malloc(size_t size) {
         void *ptr = (void *)(header + 1);
         // printf("psram_malloc(%d) -> %p (offset %d) Total Perm: %d\n", (int)size, ptr, (int)psram_offset, (int)(psram_offset + total_size));
         psram_offset += total_size;
-        spin_unlock(psram_lock, save);
+        spin_unlock_unsafe(psram_lock);
         return ptr;
     }
 }

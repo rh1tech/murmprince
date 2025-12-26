@@ -5,6 +5,11 @@
 #include <stdlib.h>
 
 #include "diskio.h"
+#include "pico/stdlib.h"  // For sleep_us
+
+// Chunk size for yielding file reads (512 bytes = 1 SD sector)
+// This allows HDMI DMA to access memory between SD reads
+#define POP_FS_READ_CHUNK_SIZE 512
 
 static FATFS g_fs;
 static bool g_mounted = false;
@@ -91,13 +96,35 @@ FIL* pop_fs_open(const char* pop_path, const char* mode) {
 
 size_t pop_fs_read(void* ptr, size_t size, size_t nmemb, FIL* fil) {
     if (!fil || !ptr) return 0;
-    UINT br = 0;
-    UINT to_read = (UINT)(size * nmemb);
-    if (to_read == 0) return 0;
+    UINT total_bytes = (UINT)(size * nmemb);
+    if (total_bytes == 0) return 0;
 
-    FRESULT fr = f_read(fil, ptr, to_read, &br);
-    if (fr != FR_OK) return 0;
-    return (size > 0) ? (br / (UINT)size) : 0;
+    // Read in chunks to allow HDMI DMA access to memory between SD operations.
+    // This prevents HDMI signal dropouts during heavy file loading.
+    uint8_t* dst = (uint8_t*)ptr;
+    UINT total_read = 0;
+    
+    while (total_bytes > 0) {
+        UINT chunk = (total_bytes > POP_FS_READ_CHUNK_SIZE) ? POP_FS_READ_CHUNK_SIZE : total_bytes;
+        UINT br = 0;
+        
+        FRESULT fr = f_read(fil, dst, chunk, &br);
+        if (fr != FR_OK) break;
+        
+        total_read += br;
+        dst += br;
+        total_bytes -= br;
+        
+        // If we read less than requested, we hit EOF
+        if (br < chunk) break;
+        
+        // Yield between chunks: memory barrier + brief pause for HDMI DMA
+        __asm volatile ("dsb" ::: "memory");
+        __asm volatile ("isb");
+        sleep_us(10);  // 10us pause allows ~3-4 HDMI scanlines worth of DMA
+    }
+    
+    return (size > 0) ? (total_read / (UINT)size) : 0;
 }
 
 size_t pop_fs_write(const void* ptr, size_t size, size_t nmemb, FIL* fil) {

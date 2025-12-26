@@ -160,7 +160,9 @@ void init_spi(void)
     gpio_set_dir(SDCARD_PIN_SPI0_MISO, GPIO_OUT);
     gpio_set_dir(SDCARD_PIN_SPI0_MOSI, GPIO_OUT);
 
-	float clkdiv = 3.0f;
+	// Slower clock to reduce bus contention with HDMI DMA
+	// Original was 3.0f (~40MHz), now 8.0f (~15MHz) for HDMI stability
+	float clkdiv = 8.0f;
 	int cpol = 0;
 	int cpha = 0;
 	uint cpha0_prog_offs = pio_add_program(pio_spi.pio, &spi_cpha0_program);

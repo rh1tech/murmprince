@@ -95,6 +95,18 @@ static uint32_t palette_original[256];  // Original colors before fade
 static uint8_t g_hdmi_fade_level = 0;   // 0 = full brightness, 64 = full black
 static uint16_t g_hdmi_fade_rows = 0;   // Bitmask of rows to fade (0 = all rows)
 
+// Loading mode: skip PSRAM access in IRQ handler, just output sync signals
+// This prevents HDMI signal loss during heavy SD card/PSRAM operations
+static volatile bool g_hdmi_loading_mode = false;
+
+void graphics_set_loading_mode(bool enable) {
+    g_hdmi_loading_mode = enable;
+}
+
+bool graphics_get_loading_mode(void) {
+    return g_hdmi_loading_mode;
+}
+
 // NOTE: HDMI uses indices 240..243 as service/control codes.
 // All other indices (including 244..255) are available for visible pixels.
 
@@ -315,51 +327,58 @@ static void dma_handler_HDMI() {
 
     if (line < mode.h_width ) {
         uint8_t* output_buffer = activ_buf + 72; //для выравнивания синхры;
-        int y = line >> 1;
-        //область изображения
-        uint8_t* input_buffer = get_line_buffer(y);
-        if (!input_buffer) {
-            // If no buffer, fill with black (255)
-            memset(output_buffer, 255, SCREEN_WIDTH);
-            return;
-        }
-        switch (hdmi_graphics_mode) {
-            case GRAPHICSMODE_DEFAULT:
-                //заполняем пространство сверху и снизу графического буфера
-                if (false || (graphics_buffer_shift_y > y) || (y >= (graphics_buffer_shift_y + graphics_buffer_height))
-                    || (graphics_buffer_shift_x >= SCREEN_WIDTH) || (
-                        (graphics_buffer_shift_x + graphics_buffer_width) < 0)) {
-                    memset(output_buffer, 255, SCREEN_WIDTH);
-                    break;
-                }
+        
+        // LOADING MODE: Skip PSRAM access entirely, just output black with valid sync.
+        // This prevents HDMI signal loss during heavy SD card/PSRAM operations.
+        if (g_hdmi_loading_mode) {
+            memset(output_buffer, 255, SCREEN_WIDTH);  // 255 = black
+        } else {
+            int y = line >> 1;
+            //область изображения
+            uint8_t* input_buffer = get_line_buffer(y);
+            if (!input_buffer) {
+                // If no buffer, fill with black (255)
+                memset(output_buffer, 255, SCREEN_WIDTH);
+            } else {
+                switch (hdmi_graphics_mode) {
+                    case GRAPHICSMODE_DEFAULT:
+                        //заполняем пространство сверху и снизу графического буфера
+                        if (false || (graphics_buffer_shift_y > y) || (y >= (graphics_buffer_shift_y + graphics_buffer_height))
+                            || (graphics_buffer_shift_x >= SCREEN_WIDTH) || (
+                                (graphics_buffer_shift_x + graphics_buffer_width) < 0)) {
+                            memset(output_buffer, 255, SCREEN_WIDTH);
+                            break;
+                        }
 
-                uint8_t* activ_buf_end = output_buffer + SCREEN_WIDTH;
-                //рисуем пространство слева от буфера
-                for (int i = graphics_buffer_shift_x; i-- > 0;) {
-                    *output_buffer++ = 255;
-                }
+                        uint8_t* activ_buf_end = output_buffer + SCREEN_WIDTH;
+                        //рисуем пространство слева от буфера
+                        for (int i = graphics_buffer_shift_x; i-- > 0;) {
+                            *output_buffer++ = 255;
+                        }
 
-                //рисуем сам видеобуфер+пространство справа
-                const uint8_t* input_buffer_end = input_buffer + graphics_buffer_width;
-                if (graphics_buffer_shift_x < 0) input_buffer -= graphics_buffer_shift_x;
-                register size_t x = 0;
-                while (activ_buf_end > output_buffer) {
-                    if (input_buffer < input_buffer_end) {
-                        register uint8_t c = input_buffer[x++];
-                        *output_buffer++ = (c >= BASE_HDMI_CTRL_INX && c < (BASE_HDMI_CTRL_INX + HDMI_CTRL_COUNT)) ? 255 : c;
-                    }
-                    else {
-                        *output_buffer++ = 255;
-                    }
+                        //рисуем сам видеобуфер+пространство справа
+                        const uint8_t* input_buffer_end = input_buffer + graphics_buffer_width;
+                        if (graphics_buffer_shift_x < 0) input_buffer -= graphics_buffer_shift_x;
+                        register size_t x = 0;
+                        while (activ_buf_end > output_buffer) {
+                            if (input_buffer < input_buffer_end) {
+                                register uint8_t c = input_buffer[x++];
+                                *output_buffer++ = (c >= BASE_HDMI_CTRL_INX && c < (BASE_HDMI_CTRL_INX + HDMI_CTRL_COUNT)) ? 255 : c;
+                            }
+                            else {
+                                *output_buffer++ = 255;
+                            }
+                        }
+                        break;
+                    default:
+                        for (int i = SCREEN_WIDTH; i--;) {
+                            uint8_t i_color = *input_buffer++;
+                            if (i_color >= BASE_HDMI_CTRL_INX && i_color < (BASE_HDMI_CTRL_INX + HDMI_CTRL_COUNT)) i_color = 255;
+                            *output_buffer++ = i_color;
+                        }
+                        break;
                 }
-                break;
-            default:
-                for (int i = SCREEN_WIDTH; i--;) {
-                    uint8_t i_color = *input_buffer++;
-                    if (i_color >= BASE_HDMI_CTRL_INX && i_color < (BASE_HDMI_CTRL_INX + HDMI_CTRL_COUNT)) i_color = 255;
-                    *output_buffer++ = i_color;
-                }
-                break;
+            }
         }
 
 
@@ -587,6 +606,7 @@ static inline bool hdmi_init() {
     dma_channel_config cfg_dma = dma_channel_get_default_config(dma_chan);
     channel_config_set_transfer_data_size(&cfg_dma, DMA_SIZE_8);
     channel_config_set_chain_to(&cfg_dma, dma_chan_ctrl); // chain to other channel
+    channel_config_set_high_priority(&cfg_dma, true);  // High priority for HDMI
 
     channel_config_set_read_increment(&cfg_dma, true);
     channel_config_set_write_increment(&cfg_dma, false);
@@ -610,6 +630,7 @@ static inline bool hdmi_init() {
     cfg_dma = dma_channel_get_default_config(dma_chan_ctrl);
     channel_config_set_transfer_data_size(&cfg_dma, DMA_SIZE_32);
     channel_config_set_chain_to(&cfg_dma, dma_chan); // chain to other channel
+    channel_config_set_high_priority(&cfg_dma, true);  // High priority for HDMI
 
     channel_config_set_read_increment(&cfg_dma, false);
     channel_config_set_write_increment(&cfg_dma, false);
@@ -631,6 +652,7 @@ static inline bool hdmi_init() {
     cfg_dma = dma_channel_get_default_config(dma_chan_pal_conv);
     channel_config_set_transfer_data_size(&cfg_dma, DMA_SIZE_32);
     channel_config_set_chain_to(&cfg_dma, dma_chan_pal_conv_ctrl); // chain to other channel
+    channel_config_set_high_priority(&cfg_dma, true);  // High priority for HDMI
 
     channel_config_set_read_increment(&cfg_dma, true);
     channel_config_set_write_increment(&cfg_dma, false);

@@ -21,6 +21,7 @@ void __time_critical_func(pio_spi_write8_blocking)(const pio_spi_inst_t *spi, co
     // gets us the left-justification for free (for MSB-first shift-out)
     io_rw_8 *txfifo = (io_rw_8 *) &spi->pio->txf[spi->sm];
     io_rw_8 *rxfifo = (io_rw_8 *) &spi->pio->rxf[spi->sm];
+    size_t yield_counter = 0;
     while (tx_remain || rx_remain) {
         if (tx_remain && !pio_sm_is_tx_fifo_full(spi->pio, spi->sm)) {
             *txfifo = *src++;
@@ -29,6 +30,11 @@ void __time_critical_func(pio_spi_write8_blocking)(const pio_spi_inst_t *spi, co
         if (rx_remain && !pio_sm_is_rx_fifo_empty(spi->pio, spi->sm)) {
             (void) *rxfifo;
             --rx_remain;
+            if (++yield_counter >= 32) {
+                yield_counter = 0;
+                __asm volatile ("dsb" ::: "memory");
+                __asm volatile ("isb");
+            }
         }
     }
 }
@@ -37,6 +43,7 @@ void __time_critical_func(pio_spi_read8_blocking)(const pio_spi_inst_t *spi, uin
     size_t tx_remain = len, rx_remain = len;
     io_rw_8 *txfifo = (io_rw_8 *) &spi->pio->txf[spi->sm];
     io_rw_8 *rxfifo = (io_rw_8 *) &spi->pio->rxf[spi->sm];
+    size_t yield_counter = 0;
     while (tx_remain || rx_remain) {
         if (tx_remain && !pio_sm_is_tx_fifo_full(spi->pio, spi->sm)) {
             *txfifo = 0;
@@ -45,6 +52,11 @@ void __time_critical_func(pio_spi_read8_blocking)(const pio_spi_inst_t *spi, uin
         if (rx_remain && !pio_sm_is_rx_fifo_empty(spi->pio, spi->sm)) {
             *dst++ = *rxfifo;
             --rx_remain;
+            if (++yield_counter >= 32) {
+                yield_counter = 0;
+                __asm volatile ("dsb" ::: "memory");
+                __asm volatile ("isb");
+            }
         }
     }
 }
@@ -54,6 +66,7 @@ void __time_critical_func(pio_spi_write8_read8_blocking)(const pio_spi_inst_t *s
     size_t tx_remain = len, rx_remain = len;
     io_rw_8 *txfifo = (io_rw_8 *) &spi->pio->txf[spi->sm];
     io_rw_8 *rxfifo = (io_rw_8 *) &spi->pio->rxf[spi->sm];
+    size_t yield_counter = 0;
     while (tx_remain || rx_remain) {
         if (tx_remain && !pio_sm_is_tx_fifo_full(spi->pio, spi->sm)) {
             *txfifo = *src++;
@@ -62,6 +75,11 @@ void __time_critical_func(pio_spi_write8_read8_blocking)(const pio_spi_inst_t *s
         if (rx_remain && !pio_sm_is_rx_fifo_empty(spi->pio, spi->sm)) {
             *dst++ = *rxfifo;
             --rx_remain;
+            if (++yield_counter >= 32) {
+                yield_counter = 0;
+                __asm volatile ("dsb" ::: "memory");
+                __asm volatile ("isb");
+            }
         }
     }
 }
@@ -71,6 +89,7 @@ void __time_critical_func(pio_spi_repeat8_read8_blocking)(const pio_spi_inst_t *
     size_t tx_remain = len, rx_remain = len;
     io_rw_8 *txfifo = (io_rw_8 *) &spi->pio->txf[spi->sm];
     io_rw_8 *rxfifo = (io_rw_8 *) &spi->pio->rxf[spi->sm];
+    size_t yield_counter = 0;
     while (tx_remain || rx_remain) {
         if (tx_remain && !pio_sm_is_tx_fifo_full(spi->pio, spi->sm)) {
             *txfifo = src;
@@ -79,6 +98,12 @@ void __time_critical_func(pio_spi_repeat8_read8_blocking)(const pio_spi_inst_t *
         if (rx_remain && !pio_sm_is_rx_fifo_empty(spi->pio, spi->sm)) {
             *dst++ = *rxfifo;
             --rx_remain;
+            // Yield every 32 bytes to let pending interrupts run
+            if (++yield_counter >= 32) {
+                yield_counter = 0;
+                __asm volatile ("dsb" ::: "memory");  // Ensure memory ops complete
+                __asm volatile ("isb");               // Instruction barrier - allows IRQs
+            }
         }
     }
 }

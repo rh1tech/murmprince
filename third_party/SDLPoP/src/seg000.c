@@ -1142,6 +1142,11 @@ const char*const tbl_envir_gr[] = {"", "C", "C", "E", "E", "V"};
 const char*const tbl_envir_ki[] = {"DUNGEON", "PALACE"};
 // seg000:0D20
 void load_lev_spr(int level) {
+#ifdef POP_RP2350
+	// Enable HDMI loading mode during heavy file I/O to prevent signal loss
+	extern void graphics_set_loading_mode(bool enable);
+	graphics_set_loading_mode(true);
+#endif
 	dat_type* dathandle;
 	short guardtype;
 	char filename[20];
@@ -1193,6 +1198,10 @@ void load_lev_spr(int level) {
 	/*if (comp_spike[current_level])*/ {
 		load_opt_sounds(48, 49); // something spiked, spikes
 	}
+#ifdef POP_RP2350
+	// Disable HDMI loading mode after heavy file I/O is complete
+	graphics_set_loading_mode(false);
+#endif
 }
 
 // seg000:0E6C
@@ -2071,15 +2080,21 @@ void show_title() {
 #endif
 	pop_wait(timer_0, 0x258);
 #ifdef POP_RP2350
-	printf("[TITLE @%ums] pop_wait done, fade_out_2 starting\n", time_us_32() / 1000);
+	printf("[TITLE @%ums] pop_wait done, fading out story text with hardware fade\n", time_us_32() / 1000);
+	// Use hardware fade to fade out the story text screen BEFORE enabling loading mode
+	extern void graphics_set_loading_mode(bool enable);
+	extern void graphics_set_fade_level(int level, int speed);
+	for (int fade = 0; fade <= 0x40; fade += 2) {
+		graphics_set_fade_level(fade, 0);
+		sleep_ms(12);  // ~12ms per step = ~384ms total fade (smooth fade out)
+	}
+	printf("[TITLE @%ums] fade complete, enabling LOADING MODE\n", time_us_32() / 1000);
+	graphics_set_loading_mode(true);
 #endif
-	fade_out_2(0x800);
-#ifdef POP_RP2350
-	printf("[TITLE @%ums] fade_out_2 done, release_title_images starting\n", time_us_32() / 1000);
-#endif
+	fade_out_2(0x800);  // stub on RP2350, does nothing
 	release_title_images();
 #ifdef POP_RP2350
-	printf("[TITLE @%ums] release_title_images done, calling load_intro\n", time_us_32() / 1000);
+	printf("[TITLE @%ums] calling load_intro\n", time_us_32() / 1000);
 #endif
 
 	load_intro(0, &pv_scene, 0);

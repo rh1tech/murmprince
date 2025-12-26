@@ -70,6 +70,11 @@ void set_palette(uint8_t n); // переключение палитр
 void graphics_set_fade_level(uint8_t fade_level, uint16_t which_rows);
 uint8_t graphics_get_fade_level(void);
 
+// Loading mode: when enabled, HDMI outputs black without accessing PSRAM
+// This prevents HDMI signal loss during heavy SD card/PSRAM operations
+void graphics_set_loading_mode(bool enable);
+bool graphics_get_loading_mode(void);
+
 // Get HDMI IRQ counter (for diagnostics)
 uint32_t graphics_get_hdmi_irq_count(void);
 

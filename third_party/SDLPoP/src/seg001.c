@@ -710,42 +710,29 @@ void load_intro(int which_imgs,cutscene_ptr_type func,int free_sounds) {
 	extern uint32_t graphics_get_hdmi_irq_count(void);
 	extern uint32_t graphics_get_hdmi_underrun_count(void);
 	extern uint32_t graphics_get_buffer_swap_count(void);
+	extern void graphics_set_loading_mode(bool enable);
+	
+	// ENABLE LOADING MODE FIRST: Skip PSRAM access in HDMI IRQ handler during heavy SD I/O.
+	// This must be the VERY FIRST thing we do, before any SD or PSRAM operations.
+	// This prevents HDMI signal loss (monitor losing sync) during file loading.
+	graphics_set_loading_mode(true);
+	
 	uint32_t t_start = time_us_32() / 1000;
 	uint32_t hdmi_irq0 = graphics_get_hdmi_irq_count();
 	uint32_t underrun0 = graphics_get_hdmi_underrun_count();
 	uint32_t swaps0 = graphics_get_buffer_swap_count();
-	printf("[CUTSCENE @%ums] load_intro: enter (IRQ=%u, underruns=%u, swaps=%u)\n", 
+	printf("[CUTSCENE @%ums] load_intro: enter, LOADING MODE ENABLED (IRQ=%u, underruns=%u, swaps=%u)\n", 
 	       t_start, hdmi_irq0, underrun0, swaps0);
 	
-	// Stop any music that's playing so it doesn't run during loading
-	stop_sounds();
+	// FIX: stop_sounds() causes HDMI signal loss - skip it during loading mode
+	// TODO: Investigate why stop_sounds() interferes with HDMI timing
+	printf("[CUTSCENE @%ums] load_intro: SKIPPING stop_sounds (causes HDMI dropout)\n", time_us_32() / 1000);
+	// stop_sounds();
 	uint32_t hdmi_irq1 = graphics_get_hdmi_irq_count();
-	uint32_t underrun1 = graphics_get_hdmi_underrun_count();
-	printf("[CUTSCENE @%ums] load_intro: sounds stopped (IRQ delta=%u, underruns=%u)\n", 
-	       time_us_32() / 1000, hdmi_irq1 - hdmi_irq0, underrun1 - underrun0);
 	
-	// Set HDMI fade to full black BEFORE loading any cutscene content.
-	// This prevents the brief flash of bright colors when palette is set.
+	// Set fade to full black before any visible operations
 	graphics_set_fade_level(0x40, 0);
 	uint32_t hdmi_irq2 = graphics_get_hdmi_irq_count();
-	uint32_t swaps2 = graphics_get_buffer_swap_count();
-	printf("[CUTSCENE @%ums] load_intro: fade set (IRQ delta=%u, swaps=%u)\n", 
-	       time_us_32() / 1000, hdmi_irq2 - hdmi_irq1, swaps2 - swaps0);
-	
-	// Clear BOTH the SDL surface AND the HDMI buffer to ensure nothing shows
-	// while we load and set up the cutscene.
-	if (onscreen_surface_ && onscreen_surface_->pixels) {
-		memset(onscreen_surface_->pixels, 0, 
-		       onscreen_surface_->pitch * onscreen_surface_->h);
-	}
-	// Also clear the HDMI framebuffer directly
-	uint8_t* hdmi_fb = graphics_get_buffer();
-	if (hdmi_fb) {
-		memset(hdmi_fb, 0, graphics_get_width() * graphics_get_height());
-	}
-	uint32_t hdmi_irq3 = graphics_get_hdmi_irq_count();
-	printf("[CUTSCENE @%ums] load_intro: buffers cleared (HDMI IRQ=%u, delta=%u)\n", 
-	       time_us_32() / 1000, hdmi_irq3, hdmi_irq3 - hdmi_irq2);
 #endif
 	draw_rect(&screen_rect, color_0_black);
 	if (free_sounds) {
@@ -841,6 +828,12 @@ void load_intro(int which_imgs,cutscene_ptr_type func,int free_sounds) {
 	uint32_t update_irq = graphics_get_hdmi_irq_count();
 	printf("[CUTSCENE] load_intro: after SDL_UpdateTexture (HDMI IRQ=%u, delta=%u)\n", 
 	       update_irq, update_irq - blit_irq);
+	
+	// DISABLE LOADING MODE: Resume normal HDMI scanout from PSRAM.
+	// All heavy file I/O is complete now.
+	graphics_set_loading_mode(false);
+	printf("[CUTSCENE @%ums] load_intro: LOADING MODE DISABLED\n", time_us_32() / 1000);
+	
 	DBG_PRINTF("[CUTSCENE] load_intro: setting fade to 0x40 (full black)\n");
 	graphics_set_fade_level(0x40, 0);  // Set to full black NOW, before sound wait loop
 	uint32_t fade_set_irq = graphics_get_hdmi_irq_count();
