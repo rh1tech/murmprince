@@ -229,11 +229,19 @@ else()
         target_compile_definitions(rp_sdl PUBLIC
             PICO_AUDIO_I2S_DATA_PIN=26
             PICO_AUDIO_I2S_CLOCK_PIN_BASE=27
+            SDCARD_PIN_SPI0_SCK=2
+            SDCARD_PIN_SPI0_MOSI=3
+            SDCARD_PIN_SPI0_MISO=4
+            SDCARD_PIN_SPI0_CS=5
         )
     elseif(BOARD_VARIANT STREQUAL "M2")
         target_compile_definitions(rp_sdl PUBLIC
             PICO_AUDIO_I2S_DATA_PIN=9
             PICO_AUDIO_I2S_CLOCK_PIN_BASE=10
+            SDCARD_PIN_SPI0_MISO=4
+            SDCARD_PIN_SPI0_CS=5
+            SDCARD_PIN_SPI0_SCK=6
+            SDCARD_PIN_SPI0_MOSI=7
         )
     endif()
 
