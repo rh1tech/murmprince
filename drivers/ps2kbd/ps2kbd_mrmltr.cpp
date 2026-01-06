@@ -340,8 +340,13 @@ void Ps2Kbd_Mrmltr::tick() {
       uint32_t rc = _pio->rxf[_sm];    
       DBG_PRINTF("PS/2 drain rc %4.4lX (%ld)\n", (unsigned long)rc, (long)rc);
     }
+    // Release all currently pressed keys to prevent sticky keys
+    hid_keyboard_report_t prev = _report;
     clearHidKeys();
     clearActions();
+    // Notify the handler that all keys are now released
+    _keyHandler(&_report, &prev);
+    return;
   }
   
   while (!pio_sm_is_rx_fifo_empty(_pio, _sm)) {
