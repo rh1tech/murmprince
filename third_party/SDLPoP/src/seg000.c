@@ -615,7 +615,8 @@ int process_key() {
 	/*nothing*/;
 
 	if (start_level < 0) {
-		if (key || control_shift) {
+		// Start game on key press (but not just modifier keys like Shift/Alt/Ctrl alone on title screen)
+		if (key) {
 			#ifdef USE_QUICKSAVE
 			if (key == SDL_SCANCODE_F9) need_quick_load = 1;
 			#endif
