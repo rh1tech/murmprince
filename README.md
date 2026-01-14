@@ -154,7 +154,7 @@ picotool load -f build-make/murmprince.uf2
 ## SD Card Setup
 
 1. Format an SD card as FAT32
-2. Download and extract [prince.zip](sdcard/prince.zip) from this repository
+2. Download [prince.zip](https://github.com/rh1tech/murmprince/raw/main/sdcard/prince.zip) and extract it
 3. Copy the `prince` folder to the root of your SD card
 
 ### Upgrading from Version 1.00
