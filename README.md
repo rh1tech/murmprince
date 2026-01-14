@@ -188,8 +188,16 @@ When cheat mode is enabled:
 - **Shift+L**: Skip to next level
 - **K**: Kill current guard
 - **R**: Resurrect kid
-- **T**: Add hit point
-- **+/-**: Add/subtract time
+- **Shift+T**: Add max hit point (big potion)
+- **Shift+S**: Restore hit point (small potion)
+- **Shift+W**: Feather fall (slow falling)
+- **Shift+I**: Flip screen upside down
+- **Shift+B**: Toggle blind mode
+- **+/-** (numpad): Add/subtract time
+- **H/J/U/N**: View room left/right/up/down
+- **Ctrl+B**: Return view to kid's room
+- **C**: Show current room info
+- **Shift+C**: Show adjacent room info
 
 ## License
 
