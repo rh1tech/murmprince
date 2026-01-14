@@ -154,11 +154,12 @@ picotool load -f build-make/murmprince.uf2
 ## SD Card Setup
 
 1. Format an SD card as FAT32
-2. Copy the `prince` folder to the SD card root
+2. Download and extract [prince.zip](sdcard/prince.zip) from this repository
+3. Copy the `prince` folder to the root of your SD card
 
 ### Upgrading from Version 1.00
 
-When upgrading from version 1.00, copy the `prince/midi_cache` directory to your SD card's `prince` folder.
+When upgrading from version 1.00, copy the `prince/midi_cache` directory from the new archive to your SD card's `prince` folder.
 
 **Note:** The MIDI cache contains pre-rendered audio for all MIDI music tracks (~62 MB). If the cache files are missing or outdated, they will be regenerated automatically during gameplay. Regeneration takes additional time during game loading.
 
@@ -208,7 +209,7 @@ This project is based on:
 
 ## Author
 
-Mikhail Matveev <xtreme@outlook.com>
+Mikhail Matveev <<xtreme@rh1.tech>>
 
 ## Acknowledgments
 
