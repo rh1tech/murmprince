@@ -371,11 +371,11 @@ start_error_t start_screen_check_requirements(void) {
         DBG_PRINTF("[start_screen] Found %d entries\n", count);
     }
     
-    // Debug: list data directory contents
-    DBG_PRINTF("[start_screen] Listing data directory:\n");
-    fr = f_opendir(&dir, "data");
+    // Debug: list prince directory contents
+    DBG_PRINTF("[start_screen] Listing prince directory:\n");
+    fr = f_opendir(&dir, "prince");
     if (fr != FR_OK) {
-        DBG_PRINTF("[start_screen] f_opendir('data') failed: %d\n", (int)fr);
+        DBG_PRINTF("[start_screen] f_opendir('prince') failed: %d\n", (int)fr);
     } else {
         int count = 0;
         for (;;) {
@@ -385,7 +385,7 @@ start_error_t start_screen_check_requirements(void) {
             count++;
         }
         f_closedir(&dir);
-        DBG_PRINTF("[start_screen] Found %d entries in data/\n", count);
+        DBG_PRINTF("[start_screen] Found %d entries in prince/\n", count);
     }
     
     // Try to find game data files
@@ -401,27 +401,27 @@ start_error_t start_screen_check_requirements(void) {
         return START_OK;
     }
     
-    // Check in data/ directory
-    fr = f_stat("data/PRINCE.DAT", &fno);
-    DBG_PRINTF("[start_screen] f_stat('data/PRINCE.DAT') = %d\n", (int)fr);
+    // Check in prince/ directory
+    fr = f_stat("prince/PRINCE.DAT", &fno);
+    DBG_PRINTF("[start_screen] f_stat('prince/PRINCE.DAT') = %d\n", (int)fr);
     if (fr == FR_OK) {
-        DBG_PRINTF("[start_screen] Found data/PRINCE.DAT, size: %lu\n", (unsigned long)fno.fsize);
+        DBG_PRINTF("[start_screen] Found prince/PRINCE.DAT, size: %lu\n", (unsigned long)fno.fsize);
         return START_OK;
     }
     
     // Check for unpacked format (PRINCE directory or other DAT files)
-    fr = f_stat("data/GUARD.DAT", &fno);
-    DBG_PRINTF("[start_screen] f_stat('data/GUARD.DAT') = %d\n", (int)fr);
+    fr = f_stat("prince/GUARD.DAT", &fno);
+    DBG_PRINTF("[start_screen] f_stat('prince/GUARD.DAT') = %d\n", (int)fr);
     if (fr == FR_OK) {
-        DBG_PRINTF("[start_screen] Found data/GUARD.DAT (unpacked format), size: %lu\n", (unsigned long)fno.fsize);
+        DBG_PRINTF("[start_screen] Found prince/GUARD.DAT (unpacked format), size: %lu\n", (unsigned long)fno.fsize);
         return START_OK;
     }
     
     // Check for PRINCE directory (unpacked format)
-    fr = f_stat("data/PRINCE", &fno);
-    DBG_PRINTF("[start_screen] f_stat('data/PRINCE') = %d\n", (int)fr);
+    fr = f_stat("prince/PRINCE", &fno);
+    DBG_PRINTF("[start_screen] f_stat('prince/PRINCE') = %d\n", (int)fr);
     if (fr == FR_OK && (fno.fattrib & AM_DIR)) {
-        DBG_PRINTF("[start_screen] Found data/PRINCE directory (unpacked format)\n");
+        DBG_PRINTF("[start_screen] Found prince/PRINCE directory (unpacked format)\n");
         return START_OK;
     }
     
@@ -529,7 +529,7 @@ void start_screen_show(start_error_t error, const char* error_msg) {
                     err_line = "ERROR: SD card not found!";
                     break;
                 case START_ERROR_NO_DATA_DIR:
-                    err_line = "ERROR: data/PRINCE.DAT not found!";
+                    err_line = "ERROR: prince/PRINCE.DAT not found!";
                     break;
                 default:
                     err_line = "ERROR: Unknown error!";

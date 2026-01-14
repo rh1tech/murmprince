@@ -154,11 +154,11 @@ picotool load -f build-make/murmprince.uf2
 ## SD Card Setup
 
 1. Format an SD card as FAT32
-2. Copy the `data` folder to the SD card root
+2. Copy the `prince` folder to the SD card root
 
 ### Upgrading from Version 1.00
 
-When upgrading from version 1.00, copy the `data/midi_cache` directory to your SD card's `data` folder.
+When upgrading from version 1.00, copy the `prince/midi_cache` directory to your SD card's `prince` folder.
 
 **Note:** The MIDI cache contains pre-rendered audio for all MIDI music tracks (~62 MB). If the cache files are missing or outdated, they will be regenerated automatically during gameplay. Regeneration takes additional time during game loading.
 
@@ -173,6 +173,23 @@ When upgrading from version 1.00, copy the `data/midi_cache` directory to your S
 - **Ctrl+A**: Restart level
 - **Ctrl+R**: Quickload
 - **Ctrl+Q**: Quit
+
+### Title Screen
+
+- **Alt+F1..F12**: Start at level 1-12
+- **Alt+Shift+F1**: Start at level 13
+- **Alt+Shift+F2**: Start at level 14
+
+### Cheat Mode
+
+- **Alt+Esc**: Toggle cheat mode on/off
+
+When cheat mode is enabled:
+- **Shift+L**: Skip to next level
+- **K**: Kill current guard
+- **R**: Resurrect kid
+- **T**: Add hit point
+- **+/-**: Add/subtract time
 
 ## License
 

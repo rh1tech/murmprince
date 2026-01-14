@@ -25,7 +25,7 @@ The authors of this program may be contacted at https://forum.princed.org
 image_type* screen_overlay = NULL;
 Uint32 bgcolor;
 
-const char mask_filename[] = "data/light.png";
+const char mask_filename[] = "prince/light.png";
 const Uint8 ambient_level = 128;
 
 // Called once at startup.

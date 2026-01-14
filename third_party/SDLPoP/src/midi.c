@@ -79,7 +79,7 @@ int midi_cache_playing = 0;  // Not static - needs to be accessed from seg009.c
 
 // Cache file path helper
 static void midi_cache_filename(int sound_id, char* buf, size_t bufsize) {
-    snprintf(buf, bufsize, "data/midi_cache/snd%02d.pcm", sound_id);
+    snprintf(buf, bufsize, "prince/midi_cache/snd%02d.pcm", sound_id);
 }
 #endif
 
@@ -1207,9 +1207,9 @@ void midi_generate_cache_files(void) {
 	extern sound_buffer_type* sound_pointers[];
 	extern const int max_sound_id;
 	
-	MIDI_DBG("midi_generate_cache_files: creating data/midi_cache dir...\n");
+	MIDI_DBG("midi_generate_cache_files: creating prince/midi_cache dir...\n");
 	// Create the directory first
-	if (!pop_fs_mkdir("data/midi_cache")) {
+	if (!pop_fs_mkdir("prince/midi_cache")) {
 		printf("Warning: Could not create midi_cache directory\n");
 	} else {
 		MIDI_DBG("midi_generate_cache_files: directory created/exists OK\n");

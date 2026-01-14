@@ -16,7 +16,7 @@ bool pop_fs_init(void);
 // Reset mounted state (for re-entry after quit)
 void pop_fs_reset(void);
 
-// Convert a SDLPoP relative path (e.g. "data/PRINCE.DAT") to a FatFS path ("0:/data/PRINCE.DAT").
+// Convert a SDLPoP relative path (e.g. "prince/PRINCE.DAT") to a FatFS path ("0:/prince/PRINCE.DAT").
 // dst must be large enough (POP_MAX_PATH in SDLPoP is typically 4096, but we keep it simple here).
 const char* pop_fs_make_path(char* dst, size_t dst_size, const char* pop_path);
 

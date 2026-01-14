@@ -491,7 +491,7 @@ static FIL* open_dat_from_root_or_data_dir(const char* filename) {
 	FIL* fp = pop_fs_open(filename, "rb");
 	if (fp == NULL) {
 		char data_path[POP_MAX_PATH];
-		snprintf_check(data_path, sizeof(data_path), "data/%s", filename);
+		snprintf_check(data_path, sizeof(data_path), "prince/%s", filename);
 		fp = pop_fs_open(data_path, "rb");
 	}
 	return fp;
@@ -501,13 +501,13 @@ static FILE* open_dat_from_root_or_data_dir(const char* filename) {
 	FILE* fp = NULL;
 	fp = fopen(filename, "rb");
 
-	// if failed, try if the DAT file can be opened in the data/ directory, instead of the main folder
+	// if failed, try if the DAT file can be opened in the prince/ directory, instead of the main folder
 	if (fp == NULL) {
 		char data_path[POP_MAX_PATH];
-		snprintf_check(data_path, sizeof(data_path), "data/%s", filename);
+		snprintf_check(data_path, sizeof(data_path), "prince/%s", filename);
 
 		if (!file_exists(data_path)) {
-			find_first_file_match(data_path, sizeof(data_path), "%s/data/%s", filename);
+			find_first_file_match(data_path, sizeof(data_path), "%s/prince/%s", filename);
 		}
 
 		// verify that this is a regular file and not a directory (otherwise, don't open)
@@ -595,7 +595,7 @@ dat_type* open_dat(const char* filename, int optional) {
 			filename_no_ext[len-4] = '\0'; // terminate, so ".DAT" is deleted from the filename
 		}
 		char foldername[POP_MAX_PATH];
-		snprintf_check(foldername,sizeof(foldername),"data/%s",filename_no_ext);
+		snprintf_check(foldername,sizeof(foldername),"prince/%s",filename_no_ext);
 		const char* data_path = locate_file(foldername);
 		#ifdef POP_RP2350
 		FILINFO fno;
@@ -2777,7 +2777,7 @@ const int max_sound_id = 58;
 
 void load_sound_names() {
 	DBG_PRINTF("[load_sound_names] entering\n");
-	const char* names_path = locate_file("data/music/names.txt");
+	const char* names_path = locate_file("prince/music/names.txt");
 	DBG_PRINTF("[load_sound_names] names_path=%s\n", names_path ? names_path : "(null)");
 	if (sound_names != NULL) return;
 	FILE* fp = fopen(names_path,"rt");
@@ -2830,7 +2830,7 @@ sound_buffer_type* load_sound(int index) {
 					fp = fopen(filename, "rb");
 				}
 				if (fp == NULL && !skip_normal_data_files) {
-					snprintf_check(filename, sizeof(filename), "data/music/%s.ogg", sound_name(index));
+					snprintf_check(filename, sizeof(filename), "prince/music/%s.ogg", sound_name(index));
 					fp = fopen(locate_file(filename), "rb");
 				}
 				if (fp == NULL) {
@@ -3265,7 +3265,7 @@ void set_gr_mode(byte grmode) {
 #endif
 	}
 
-	SDL_Surface* icon = IMG_Load(locate_file("data/icon.png"));
+	SDL_Surface* icon = IMG_Load(locate_file("prince/icon.png"));
 	if (icon == NULL) {
 		sdlperror("set_gr_mode: Could not load icon");
 	} else {
@@ -3632,7 +3632,7 @@ void load_from_opendats_metadata(int resource_id, const char* extension, pop_fil
 			if (len >= 5 && filename_no_ext[len-4] == '.') {
 				filename_no_ext[len-4] = '\0'; // terminate, so ".DAT" is deleted from the filename
 			}
-			snprintf_check(image_filename,sizeof(image_filename),"data/%s/res%d.%s",filename_no_ext, resource_id, extension);
+			snprintf_check(image_filename,sizeof(image_filename),"prince/%s/res%d.%s",filename_no_ext, resource_id, extension);
 			if (!use_custom_levelset) {
 				//printf("loading (binary) %s",image_filename);
 				fp = pop_open(locate_file(image_filename), "rb");
@@ -3640,7 +3640,7 @@ void load_from_opendats_metadata(int resource_id, const char* extension, pop_fil
 			else {
 				if (!skip_mod_data_files) {
 					char image_filename_mod[POP_MAX_PATH];
-					// before checking data/, first try mods/MODNAME/data/
+					// before checking prince/, first try mods/MODNAME/prince/
 					snprintf_check(image_filename_mod, sizeof(image_filename_mod), "%s/%s", mod_data_path, image_filename);
 					//printf("loading (binary) %s",image_filename_mod);
 					fp = pop_open(locate_file(image_filename_mod), "rb");
