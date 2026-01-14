@@ -31,6 +31,31 @@ extern uint32_t graphics_get_hdmi_irq_count(void);
 #define M_PI 3.14159265358979323846
 #endif
 
+// Check if the given key (with modifiers) is Alt+Fn and return the level number (1-14), or 0 if not
+static int get_alt_fn_level(int key) {
+	// Alt+F1 = level 1, Alt+F2 = level 2, ..., Alt+F12 = level 12
+	// Alt+Shift+F1 = level 13, Alt+Shift+F2 = level 14
+	if (!(key & WITH_ALT)) return 0;  // Must have Alt pressed
+	
+	int scancode = key & 0x0FFF;  // Remove modifier bits
+	
+	if (scancode >= SDL_SCANCODE_F1 && scancode <= SDL_SCANCODE_F12) {
+		int fn_num = scancode - SDL_SCANCODE_F1 + 1;  // F1=1, F2=2, ..., F12=12
+		if (key & WITH_SHIFT) {
+			// Alt+Shift+F1 = level 13, Alt+Shift+F2 = level 14
+			if (fn_num <= 2) {
+				return fn_num + 12;  // 13 or 14
+			}
+		} else {
+			return fn_num;  // 1-12
+		}
+	}
+	return 0;  // Not a valid Alt+Fn combination
+}
+
+// Global to store the key that caused title screen skip (set in do_wait before key is consumed)
+int title_skip_key = 0;
+
 // data:461E
 dat_type * dathandle;
 
@@ -606,7 +631,13 @@ int process_key() {
 			if (key == (SDL_SCANCODE_L | WITH_CTRL)) { // Ctrl+L
 				if (!load_game()) return 0;
 			} else {
-				start_level = custom->first_level; // 1
+				// Check for Alt+Fn to start at specific level
+				int alt_fn_level = get_alt_fn_level(key);
+				if (alt_fn_level > 0 && alt_fn_level <= 14) {
+					start_level = alt_fn_level;
+				} else {
+					start_level = custom->first_level; // 1
+				}
 			}
 			draw_rect(&screen_rect, color_0_black);
 #ifdef USE_FADE
@@ -774,6 +805,14 @@ int process_key() {
 #endif // USE_REPLAY
 #endif // USE_QUICKSAVE
 	}
+	
+	// Alt+Esc: Toggle cheat mode
+	if (key == (SDL_SCANCODE_ESCAPE | WITH_ALT)) {
+		cheats_enabled = !cheats_enabled;
+		answer_text = cheats_enabled ? "CHEATS ON" : "CHEATS OFF";
+		need_show_text = 1;
+	}
+	
 	if (cheats_enabled) {
 		switch (key) {
 			case SDL_SCANCODE_C: // c
@@ -2221,7 +2260,18 @@ title_skip:
 	printf("[DEMO @%ums] show_title: after release, before init_game(0) (IRQ delta=%u, swaps=%u)\n", 
 	       demo_time_rel, demo_irq_rel - demo_irq_fade, demo_swaps_rel - demo_swaps_fade);
 #endif
-	init_game(0);
+	// Check for Alt+Fn key combination to start at specific level
+	// (This is a fallback - primary handling is in process_key())
+	{
+		extern int title_skip_key;
+		int skip_level = get_alt_fn_level(title_skip_key);
+		title_skip_key = 0;  // Clear for next time
+		if (skip_level > 0 && skip_level <= 14) {
+			init_game(skip_level);
+		} else {
+			init_game(0);
+		}
+	}
 }
 
 Uint64 last_transition_counter;

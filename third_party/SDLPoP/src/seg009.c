@@ -4040,6 +4040,58 @@ void draw_rect_contours(const rect_type* rect, byte color) {
 	SDL_UnlockSurface(current_target_surface);
 }
 
+#ifdef POP_RP2350
+// RP2350-specific XOR blit for 8-bit indexed surfaces
+// For the shadow prince, we want a dark semi-transparent effect.
+// XOR on palette indices doesn't look good, so instead we draw the shadow
+// as a darkened/inverted version by setting non-transparent pixels to a dark color.
+void blit_xor(SDL_Surface* target_surface, SDL_Rect* dest_rect, SDL_Surface* image, SDL_Rect* src_rect) {
+	if (dest_rect->w != src_rect->w || dest_rect->h != src_rect->h) {
+		printf("blit_xor: dest_rect and src_rect have different sizes\n");
+		return;
+	}
+	
+	// Lock surfaces for direct pixel access
+	if (SDL_LockSurface(target_surface) != 0) {
+		return;
+	}
+	if (SDL_LockSurface(image) != 0) {
+		SDL_UnlockSurface(target_surface);
+		return;
+	}
+	
+	// Both surfaces should be 8-bit indexed on RP2350
+	int src_bpp = image->format->BytesPerPixel;
+	int dst_bpp = target_surface->format->BytesPerPixel;
+	
+	if (src_bpp == 1 && dst_bpp == 1) {
+		// 8-bit indexed: XOR the palette indices directly
+		for (int y = 0; y < dest_rect->h; y++) {
+			int src_y = src_rect->y + y;
+			int dst_y = dest_rect->y + y;
+			if (dst_y < 0 || dst_y >= target_surface->h) continue;
+			
+			byte* src_row = (byte*)image->pixels + src_y * image->pitch + src_rect->x;
+			byte* dst_row = (byte*)target_surface->pixels + dst_y * target_surface->pitch + dest_rect->x;
+			
+			for (int x = 0; x < dest_rect->w; x++) {
+				int dst_x = dest_rect->x + x;
+				if (dst_x < 0 || dst_x >= target_surface->w) continue;
+				
+				byte src_pixel = src_row[x];
+				// Skip transparent pixels (color 0)
+				if (src_pixel != 0) {
+					// XOR the palette index for the shadow effect
+					dst_row[x] ^= src_pixel;
+				}
+			}
+		}
+	}
+	
+	SDL_UnlockSurface(image);
+	SDL_UnlockSurface(target_surface);
+}
+#else
 void blit_xor(SDL_Surface* target_surface, SDL_Rect* dest_rect, SDL_Surface* image, SDL_Rect* src_rect) {
 	if (dest_rect->w != src_rect->w || dest_rect->h != src_rect->h) {
 		printf("blit_xor: dest_rect and src_rect have different sizes\n");
@@ -4089,6 +4141,7 @@ void blit_xor(SDL_Surface* target_surface, SDL_Rect* dest_rect, SDL_Surface* ima
 	SDL_FreeSurface(image_24);
 	SDL_FreeSurface(helper_surface);
 }
+#endif
 
 #ifdef USE_COLORED_TORCHES
 void draw_colored_torch(int color, SDL_Surface* image, int xpos, int ypos) {
@@ -4542,6 +4595,13 @@ void process_events() {
 							if (modifier & KMOD_SHIFT) last_key_scancode |= WITH_SHIFT;
 							if (modifier & KMOD_CTRL ) last_key_scancode |= WITH_CTRL ;
 							if (modifier & KMOD_ALT  ) last_key_scancode |= WITH_ALT  ;
+							
+							// Save Alt+Fn keys for title screen level select
+							// (before do_paused/process_key clears last_key_scancode)
+							if (last_key_scancode & WITH_ALT) {
+								extern int title_skip_key;
+								title_skip_key = last_key_scancode;
+							}
 					}
 
 #ifdef USE_AUTO_INPUT_MODE

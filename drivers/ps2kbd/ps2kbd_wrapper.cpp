@@ -80,10 +80,10 @@ static int hid_to_sdl_scancode(uint8_t hid_code) {
         case 0x51: return 81;  // Down -> SDL_SCANCODE_DOWN
         case 0x52: return 82;  // Up -> SDL_SCANCODE_UP
         
-        // Function keys F1-F12: HID 0x3A-0x45 -> SDL 58-69
+        // Function keys F1-F12: HID 0x3A-0x45 (58-69) -> SDL 58-69 (same values)
         default:
             if (hid_code >= 0x3A && hid_code <= 0x45) {
-                return hid_code + 0x1E;  // 0x3A + 0x1E = 58 = SDL_SCANCODE_F1
+                return hid_code;  // HID codes match SDL scancodes for F1-F12
             }
             break;
     }
